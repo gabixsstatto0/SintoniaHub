@@ -1,4 +1,4 @@
--- language: Lua, file: sintonia_hub_main_antiafk.lua, target: Roblox (Delta Mobile)
+-- language: Lua, file: sintonia_hub_autopesca.lua, target: Roblox (Delta Mobile)
 
 -- ============ CARREGANDO FLUENT ============
 local Fluent = loadstring(game:HttpGet("https://github.com/dawid-scripts/Fluent/releases/latest/download/main.lua"))()
@@ -9,23 +9,8 @@ local Workspace = game:GetService("Workspace")
 local RunService = game:GetService("RunService")
 local TweenService = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
-local VirtualUser = game:GetService("VirtualUser")
 local LP = Players.LocalPlayer
 local Camera = Workspace.CurrentCamera
-
--- ============ VARIÁVEIS ANTI-AFK ============
-local antiAfkEnabled = false
-
-task.spawn(function()
-    while task.wait(60) do -- Simula ação a cada 60 segundos
-        if antiAfkEnabled then
-            pcall(function()
-                VirtualUser:CaptureController()
-                VirtualUser:ClickButton2(Vector2.new(0, 0))
-            end)
-        end
-    end
-end)
 
 -- ============ BANCO DE DADOS DE KEYS ============
 local ValidKeys = {
@@ -465,8 +450,9 @@ local function runPescaLoop()
         local char2, root2, hum2 = getChar()
         if not root2 then task.wait(0.5) else
             
+            -- Acha o prompt mais perto
             local bestPrompt = nil
-            local shortest = 20
+            local shortest = 20 -- Alcance de 20 studs
             local myPos = root2.Position
             
             for _, obj in ipairs(Workspace:GetDescendants()) do
@@ -497,7 +483,7 @@ local function runPescaLoop()
                 end)
             end
             
-            task.wait(1.5)
+            task.wait(1.5) -- Delay de 1.5s pra não floodar e bugar a animação
         end
     end
 end
@@ -546,6 +532,7 @@ RunService.RenderStepped:Connect(function()
     local viewport = Camera.ViewportSize
     local centerScreen = Vector2.new(viewport.X / 2, viewport.Y / 2)
     
+    -- Lógica de Spectar
     if spectateEnabled and spectateTargetModel and spectateTargetModel.Parent then
         local seat = spectateTargetModel:FindFirstChildWhichIsA("VehicleSeat")
         if seat then
@@ -681,7 +668,6 @@ local function LoadMainUI(isPremium)
     })
 
     local Tabs = {
-        Main = Window:AddTab({ Title = "Main", Icon = "info" }),
         PvP = Window:AddTab({ Title = "Área PvP", Icon = "crosshair" }),
         Evento = Window:AddTab({ Title = "Farm Evento", Icon = "gift" }),
         Outros = Window:AddTab({ Title = "Farm Outros", Icon = "box" }),
@@ -689,19 +675,6 @@ local function LoadMainUI(isPremium)
         Teleport = Window:AddTab({ Title = "Teleport", Icon = "map" }), 
         Config = Window:AddTab({ Title = "Configurações", Icon = "settings" })
     }
-
-    Tabs.Main:AddParagraph({ 
-        Title = "Bem-vindo ao Cinder Hub", 
-        Content = "Este script está em desenvolvimento. Se você encontrar algum bug, por favor comunique para que possamos corrigir o mais rápido possível." 
-    })
-    
-    Tabs.Main:AddToggle("AntiAFK", { 
-        Title = "Anti AFK", 
-        Default = false, 
-        Callback = function(Value) 
-            antiAfkEnabled = Value 
-        end 
-    })
 
     Tabs.PvP:AddParagraph({ Title = "Aimbot", Content = "Configurações de mira e FOV" })
     Tabs.PvP:AddToggle("ToggleAimbot", { Title = "Ativar Aimbot", Default = false, Callback = function(Value)
@@ -747,7 +720,7 @@ local function LoadMainUI(isPremium)
     end
 
     if isPremium then
-        -- AUTO PESCAR
+        -- AUTO PESCAR (NOVO)
         Tabs.Outros:AddParagraph({ Title = "Auto Pescar", Content = "Teleporta para a pesca e spamma o prompt." })
         Tabs.Outros:AddButton({ Title = "Iniciar Auto Pescar", Callback = function()
             if runningPesca then Fluent:Notify({Title = "Aviso", Content = "A pesca já está rodando!", Duration = 3}); return end
