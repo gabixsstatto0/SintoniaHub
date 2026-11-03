@@ -1,4 +1,4 @@
--- language: Lua, file: sintonia_hub_fix8.lua, target: Roblox (Delta Mobile)
+-- language: Lua, file: sintonia_hub_fix10.lua, target: Roblox (Delta Mobile)
 
 -- ============ CARREGANDO FLUENT ============
 local Fluent = loadstring(game:HttpGet("https://github.com/dawid-scripts/Fluent/releases/latest/download/main.lua"))()
@@ -359,11 +359,10 @@ local function findActivePromptPecas()
             local action = string.lower(obj.ActionText or "")
             local objText = string.lower(obj.ObjectText or "")
             
-            local isDinheiro = action:find("dinheiro") or objText:find("dinheiro")
-            local isInicial = action:find("interagir") or objText == "prompt"
+            local isBlocked = action:find("dinheiro") or objText:find("dinheiro") or action:find("interagir")
             local hasPeca = action:find("peça") or action:find("peca") or action:find("parte") or objText:find("peça") or objText:find("peca") or objText:find("parte")
             
-            if hasPeca and not isDinheiro and not isInicial then
+            if hasPeca and not isBlocked then
                 local parent = obj.Parent
                 local pos
                 if parent:IsA("BasePart") then pos = parent.Position
@@ -417,7 +416,7 @@ local function runPecasLoop()
                 end
                 
                 pecasColetadas += 1
-                Fluent:Notify({Title = "Farm Peças", Content = "Peça coletada! Total: " .. pecasColetadas, Duration = 2})
+                -- Notificação de peça coletada removida daqui!
             end
         else
             task.wait(0.5)
@@ -666,7 +665,6 @@ local function LoadMainUI(isPremium)
             if root and hum then
                 local targetPos = COORD_ROTA + Vector3.new(0, 3, 0)
                 
-                -- SIT SYSTEM
                 hum.Sit = true
                 task.wait(0.1)
                 root.CFrame = CFrame.new(targetPos)
