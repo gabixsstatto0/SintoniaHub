@@ -1,4 +1,4 @@
--- language: Lua, file: sintonia_hub_fix10.lua, target: Roblox (Delta Mobile)
+-- language: Lua, file: sintonia_hub_tp_map.lua, target: Roblox (Delta Mobile)
 
 -- ============ CARREGANDO FLUENT ============
 local Fluent = loadstring(game:HttpGet("https://github.com/dawid-scripts/Fluent/releases/latest/download/main.lua"))()
@@ -610,6 +610,7 @@ local function LoadMainUI(isPremium)
         Evento = Window:AddTab({ Title = "Farm Evento", Icon = "gift" }),
         Outros = Window:AddTab({ Title = "Farm Outros", Icon = "box" }),
         Veiculos = Window:AddTab({ Title = "Veículos", Icon = "car" }),
+        Teleport = Window:AddTab({ Title = "Teleport", Icon = "map" }), -- NOVA ABA AQUI
         Config = Window:AddTab({ Title = "Configurações", Icon = "settings" })
     }
 
@@ -791,6 +792,58 @@ local function LoadMainUI(isPremium)
         end })
     else
         Tabs.Veiculos:AddParagraph({ Title = "Módulo Bloqueado", Content = "Você entrou com a Entrada Grátis. Insira a Key correta para liberar os Veículos." })
+    end
+
+    -- TELEPORT TAB
+    if isPremium then
+        Tabs.Teleport:AddParagraph({ Title = "Teleporte para Locais", Content = "Vá instantaneamente para os pontos do mapa." })
+
+        -- Tabela com todos os locais que você mandou
+        local locations = {
+            ["Lavagem de dinheiro"] = Vector3.new(-391, 143, -4000),
+            ["Fabricar armas"] = Vector3.new(-429, 122, -4002),
+            ["Mercado negro"] = Vector3.new(-362, 122, -4083),
+            ["Hospital"] = Vector3.new(-415, 122, -4975),
+            ["Garagem do hospital"] = Vector3.new(-579, 122, -4739),
+            ["Garagem da praça"] = Vector3.new(-1002, 129, -4642),
+            ["Praça"] = Vector3.new(-1058, 132, -4870),
+            ["Mercadinho"] = Vector3.new(-1264, 131, -4965),
+            ["Prefeitura"] = Vector3.new(-786, 129, -4921),
+            ["Concessionária"] = Vector3.new(-734, 131, -4737),
+            ["Ammu"] = Vector3.new(-780, 124, -4018),
+            ["Coreia"] = Vector3.new(-481, 122, -4080),
+            ["Cassino"] = Vector3.new(-1404, 122, -3895),
+            ["Banco"] = Vector3.new(-756, 140, -2686),
+            ["Mecânica"] = Vector3.new(-269, 122, -2903),
+            ["Vermelhão"] = Vector3.new(-434, 129, -2844),
+            ["Antiga turquia"] = Vector3.new(-1794, 122, -4209),
+            ["França"] = Vector3.new(-4866, 341, -6153),
+            ["Pesca"] = Vector3.new(-2596, 122, -3040)
+        }
+
+        -- Loop para criar um botão pra cada local
+        for name, pos in pairs(locations) do
+            Tabs.Teleport:AddButton({
+                Title = "TP: " .. name,
+                Callback = function()
+                    local char, root, hum = getChar()
+                    if root and hum then
+                        local targetPos = pos + Vector3.new(0, 3, 0)
+                        
+                        -- SIT SYSTEM
+                        hum.Sit = true
+                        task.wait(0.1)
+                        root.CFrame = CFrame.new(targetPos)
+                        task.wait(0.2)
+                        hum.Sit = false
+                        
+                        Fluent:Notify({Title = "Teleporte", Content = "Você foi para: " .. name, Duration = 3})
+                    end
+                end
+            })
+        end
+    else
+        Tabs.Teleport:AddParagraph({ Title = "Módulo Bloqueado", Content = "Você entrou com a Entrada Grátis. Insira a Key correta para liberar o Teleporte." })
     end
 
     Window:SelectTab(1)
