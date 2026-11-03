@@ -1,4 +1,4 @@
--- language: Lua, file: sintonia_hub_veiculos_fix.lua, target: Roblox (Delta Mobile)
+-- language: Lua, file: sintonia_hub_veiculos_fix3.lua, target: Roblox (Delta Mobile)
 
 -- ============ CARREGANDO FLUENT ============
 local Fluent = loadstring(game:HttpGet("https://github.com/dawid-scripts/Fluent/releases/latest/download/main.lua"))()
@@ -661,18 +661,26 @@ local function LoadMainUI(isPremium)
         
         local vehicleDropdown = Tabs.Veiculos:AddDropdown("VehicleList", {
             Title = "Selecionar Veículo",
-            Values = {},
-            Default = "",
+            Values = {"Nenhum carro"}, 
+            Default = "Nenhum carro",
             Multi = false,
             Callback = function(Value)
-                spectateTargetModel = vehicleMap[Value]
+                if vehicleMap[Value] then
+                    spectateTargetModel = vehicleMap[Value]
+                end
             end
         })
 
         Tabs.Veiculos:AddButton({ Title = "Atualizar Lista", Callback = function()
             local spawned = getSpawnedVehicles()
-            vehicleDropdown:Refresh(spawned) -- CORREÇÃO AQUI
-            Fluent:Notify({Title = "Veículos", Content = "Lista atualizada! " .. #spawned .. " carros achados.", Duration = 3})
+            
+            if #spawned > 0 then
+                vehicleDropdown:SetValues(spawned) -- CORREÇÃO AQUI
+                Fluent:Notify({Title = "Veículos", Content = "Lista atualizada! " .. #spawned .. " carros achados.", Duration = 3})
+            else
+                vehicleDropdown:SetValues({"Nenhum carro"}) -- CORREÇÃO AQUI
+                Fluent:Notify({Title = "Aviso", Content = "Nenhum carro spawnado no mapa.", Duration = 3})
+            end
         end })
 
         Tabs.Veiculos:AddToggle("ToggleSpectate", { Title = "Spectar Veículo", Default = false, Callback = function(Value)
