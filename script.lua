@@ -1,4 +1,4 @@
--- language: Lua, file: sintonia_hub_completo_final.lua, target: Roblox (Delta Mobile)
+-- language: Lua, file: sintonia_hub_veiculos.lua, target: Roblox (Delta Mobile)
 
 -- ============ CARREGANDO FLUENT ============
 local Fluent = loadstring(game:HttpGet("https://github.com/dawid-scripts/Fluent/releases/latest/download/main.lua"))()
@@ -134,6 +134,12 @@ local spawnTimes = {}
 -- ============ VARIÁVEIS FARM PEÇAS ============
 local runningPecas = false
 local pecasColetadas = 0
+
+-- ============ VARIÁVEIS VEÍCULOS ============
+local vehicleMap = {}
+local spectateEnabled = false
+local spectateTargetModel = nil
+local COORD_DESMANCHE = Vector3.new(-1973, 122, -4065)
 
 -- ============ FOV (DRAWING API) ============
 local fovCircle = Drawing.new("Circle")
@@ -420,11 +426,49 @@ local function runPecasLoop()
     end
 end
 
+-- ============ FUNÇÕES DE VEÍCULOS ============
+local function getSpawnedVehicles()
+    local list = {}
+    local seenModels = {}
+    
+    for _, obj in ipairs(Workspace:GetDescendants()) do
+        if obj:IsA("VehicleSeat") then
+            local carModel = obj:FindFirstAncestorOfClass("Model")
+            if carModel and not seenModels[carModel] and carModel:IsDescendantOf(Workspace) then
+                local primary = carModel.PrimaryPart or carModel:FindFirstChildWhichIsA("BasePart")
+                if primary then
+                    seenModels[carModel] = true
+                    table.insert(list, carModel.Name)
+                    vehicleMap[carModel.Name] = carModel
+                end
+            end
+        end
+    end
+    return list
+end
+
 -- ============ LOOP PRINCIPAL ============
 RunService.RenderStepped:Connect(function()
     local viewport = Camera.ViewportSize
     local centerScreen = Vector2.new(viewport.X / 2, viewport.Y / 2)
     
+    -- Lógica de Spectar
+    if spectateEnabled and spectateTargetModel and spectateTargetModel.Parent then
+        local seat = spectateTargetModel:FindFirstChildWhichIsA("VehicleSeat")
+        if seat then
+            Camera.CameraType = Enum.CameraType.Custom
+            Camera.CameraSubject = seat
+        end
+    elseif spectateEnabled and (not spectateTargetModel or not spectateTargetModel.Parent) then
+        -- Se o carro sumir, volta pro player
+        local _, hum = getChar()
+        if hum then
+            Camera.CameraType = Enum.CameraType.Custom
+            Camera.CameraSubject = hum
+        end
+        spectateEnabled = false
+    end
+
     if aimbotEnabled and not hideFov then
         fovCircle.Visible = true
         fovCircle.Position = centerScreen
@@ -548,10 +592,10 @@ local function LoadMainUI(isPremium)
         PvP = Window:AddTab({ Title = "Área PvP", Icon = "crosshair" }),
         Evento = Window:AddTab({ Title = "Farm Evento", Icon = "gift" }),
         Outros = Window:AddTab({ Title = "Farm Outros", Icon = "box" }),
+        Veiculos = Window:AddTab({ Title = "Veículos", Icon = "car" }),
         Config = Window:AddTab({ Title = "Configurações", Icon = "settings" })
     }
 
-    -- PVP TAB
     Tabs.PvP:AddParagraph({ Title = "Aimbot", Content = "Configurações de mira e FOV" })
     Tabs.PvP:AddToggle("ToggleAimbot", { Title = "Ativar Aimbot", Default = false, Callback = function(Value)
         aimbotEnabled = Value
@@ -580,7 +624,6 @@ local function LoadMainUI(isPremium)
         if espTracersEnabled then for _, p in ipairs(Players:GetPlayers()) do createTracer(p) end else clearTracers() end
     end })
 
-    -- EVENTO TAB
     if isPremium then
         Tabs.Evento:AddParagraph({ Title = "Farm de Abóboras", Content = "Use para coletar as abóboras do evento." })
         Tabs.Evento:AddButton({ Title = "Iniciar Farm Abóbora", Callback = function()
@@ -596,7 +639,6 @@ local function LoadMainUI(isPremium)
         Tabs.Evento:AddParagraph({ Title = "Módulo Bloqueado", Content = "Você entrou com a Entrada Grátis. Insira a Key correta para liberar o Farm de Abóboras." })
     end
 
-    -- OUTROS TAB
     if isPremium then
         Tabs.Outros:AddParagraph({ Title = "Farm de Peças", Content = "Use para coletar peças de armas pelo mapa." })
         Tabs.Outros:AddButton({ Title = "Iniciar Farm Peças", Callback = function()
@@ -610,6 +652,62 @@ local function LoadMainUI(isPremium)
         end })
     else
         Tabs.Outros:AddParagraph({ Title = "Módulo Bloqueado", Content = "Você entrou com a Entrada Grátis. Insira a Key correta para liberar o Farm de Peças." })
+    end
+
+    -- VEÍCULOS TAB
+    if isPremium then
+        Tabs.Veiculos:AddParagraph({ Title = "Controle de Veículos", Content = "Specte ou envie veículos para o desmanche." })
+        
+        local vehicleDropdown = Tabs.Veiculos:AddDropdown("VehicleList", {
+            Title = "Selecionar Veículo",
+            Values = {},
+            Default = 1,
+            Multi = false,
+            Callback = function(Value)
+                spectateTargetModel = vehicleMap[Value]
+            end
+        })
+
+        Tabs.Veiculos:AddButton({ Title = "Atualizar Lista", Callback = function()
+            local spawned = getSpawnedVehicles()
+            vehicleDropdown:SetOptions(spawned)
+            Fluent:Notify({Title = "Veículos", Content = "Lista atualizada! " .. #spawned .. " carros achados.", Duration = 3})
+        end })
+
+        Tabs.Veiculos:AddToggle("ToggleSpectate", { Title = "Spectar Veículo", Default = false, Callback = function(Value)
+            spectateEnabled = Value
+            if not Value then
+                local _, hum = getChar()
+                if hum then
+                    Camera.CameraType = Enum.CameraType.Custom
+                    Camera.CameraSubject = hum
+                end
+            end
+        end })
+
+        Tabs.Veiculos:AddButton({ Title = "Dar TP no Desmanche", Callback = function()
+            local char, root = getChar()
+            local hum = char and char:FindFirstChildOfClass("Humanoid")
+            if not root or not hum then return end
+            
+            local targetPos = COORD_DESMANCHE + Vector3.new(0, 5, 0)
+            
+            if hum.SeatPart then
+                local carModel = hum.SeatPart:FindFirstAncestorOfClass("Model")
+                if carModel then
+                    pcall(function()
+                        carModel:PivotTo(CFrame.new(targetPos))
+                    end)
+                    root.CFrame = CFrame.new(targetPos)
+                    Fluent:Notify({Title = "Desmanche", Content = "Carro e jogador teleportados!", Duration = 3})
+                end
+            else
+                root.CFrame = CFrame.new(targetPos)
+                Fluent:Notify({Title = "Desmanche", Content = "Você foi teleportado (a pé).", Duration = 3})
+            end
+        end })
+    else
+        Tabs.Veiculos:AddParagraph({ Title = "Módulo Bloqueado", Content = "Você entrou com a Entrada Grátis. Insira a Key correta para liberar os Veículos." })
     end
 
     Window:SelectTab(1)
