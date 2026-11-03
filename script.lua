@@ -1,4 +1,4 @@
--- language: Lua, file: sintonia_hub_veiculos_fix4.lua, target: Roblox (Delta Mobile)
+-- language: Lua, file: sintonia_hub_fix8.lua, target: Roblox (Delta Mobile)
 
 -- ============ CARREGANDO FLUENT ============
 local Fluent = loadstring(game:HttpGet("https://github.com/dawid-scripts/Fluent/releases/latest/download/main.lua"))()
@@ -135,11 +135,12 @@ local spawnTimes = {}
 local runningPecas = false
 local pecasColetadas = 0
 
--- ============ VARIÁVEIS VEÍCULOS ============
+-- ============ VARIÁVEIS VEÍCULOS E TELEPORTES ============
 local vehicleMap = {}
 local spectateEnabled = false
 local spectateTargetModel = nil
 local COORD_DESMANCHE = Vector3.new(-1973, 122, -4065)
+local COORD_ROTA = Vector3.new(-492, 143, -3996)
 
 -- ============ FOV (DRAWING API) ============
 local fovCircle = Drawing.new("Circle")
@@ -233,11 +234,11 @@ end)
 -- ============ FUNÇÕES GERAIS ============
 local function getChar()
     local c = LP.Character
-    if not c then return nil end
+    if not c then return nil, nil, nil end
     local hrp = c:FindFirstChild("HumanoidRootPart")
     local hum = c:FindFirstChildOfClass("Humanoid")
-    if not hrp or not hum or hum.Health <= 0 then return nil end
-    return hrp, hum
+    if not hrp or not hum or hum.Health <= 0 then return nil, nil, nil end
+    return c, hrp, hum
 end
 
 -- ============ FUNÇÕES DO FARM ABÓBORA ============
@@ -270,7 +271,7 @@ local function firePrompt(prompt)
 end
 
 local function flyToAndLock(targetCF)
-    local hrp, hum = getChar()
+    local char, hrp, hum = getChar()
     if not hrp or not hum then return end
     pinActive = false; hum.Sit = true
     hrp.AssemblyLinearVelocity = Vector3.zero; hrp.AssemblyAngularVelocity = Vector3.zero
@@ -286,18 +287,18 @@ end
 
 RunService.Heartbeat:Connect(function()
     if not pinActive or not pinTarget then return end
-    local hrp = getChar()
+    local _, hrp = getChar()
     if hrp then hrp.CFrame = pinTarget; hrp.AssemblyLinearVelocity = Vector3.zero; hrp.AssemblyAngularVelocity = Vector3.zero end
 end)
 
 local function runAboboraLoop()
     runningAbobora = true
-    local hrp, hum = getChar()
+    local char, hrp, hum = getChar()
     if hrp then pinTarget = hrp.CFrame end
     pinActive = true
 
     while runningAbobora do
-        local hrp, hum = getChar()
+        local char, hrp, hum = getChar()
         if not hrp then task.wait(0.5) else
             local list = getAboboras()
             if #list == 0 then
@@ -344,7 +345,7 @@ local function runAboboraLoop()
         task.wait(0.05)
     end
     pinActive = false
-    local _, hum = getChar(); if hum then hum.Sit = false end
+    local _, _, hum = getChar(); if hum then hum.Sit = false end
 end
 
 -- ============ FUNÇÕES DO FARM PEÇAS ============
@@ -392,8 +393,7 @@ local function runPecasLoop()
         
         if prompt and targetPos then
             local target = targetPos + Vector3.new(0, 2, 0)
-            local char, root = getChar()
-            local hum = char and char:FindFirstChildOfClass("Humanoid")
+            local char, root, hum = getChar()
             
             if root and hum then
                 hum.Sit = true
@@ -438,9 +438,10 @@ local function getSpawnedVehicles()
     for _, obj in ipairs(Workspace:GetDescendants()) do
         if obj:IsA("VehicleSeat") then
             local carModel = obj:FindFirstAncestorOfClass("Model")
-            if carModel and carModel:IsDescendantOf(Workspace) then
+            
+            if carModel and not carModel:FindFirstChildOfClass("Humanoid") and carModel:IsDescendantOf(Workspace) then
                 local primary = carModel.PrimaryPart or carModel:FindFirstChildWhichIsA("BasePart")
-                if primary then
+                if primary and primary:IsA("BasePart") then
                     local name = carModel.Name
                     local dist = (primary.Position - myPos).Magnitude
                     
@@ -448,7 +449,6 @@ local function getSpawnedVehicles()
                         uniqueNames[name] = {model = carModel, dist = dist}
                         table.insert(list, name)
                     else
-                        -- Se já tem o nome, só troca se o novo for mais perto
                         if dist < uniqueNames[name].dist then
                             uniqueNames[name] = {model = carModel, dist = dist}
                         end
@@ -479,7 +479,7 @@ RunService.RenderStepped:Connect(function()
         end
     elseif spectateEnabled and (not spectateTargetModel or not spectateTargetModel.Parent) then
         -- Se o carro sumir, volta pro player
-        local _, hum = getChar()
+        local _, _, hum = getChar()
         if hum then
             Camera.CameraType = Enum.CameraType.Custom
             Camera.CameraSubject = hum
@@ -650,7 +650,7 @@ local function LoadMainUI(isPremium)
         end })
         Tabs.Evento:AddButton({ Title = "Parar Farm Abóbora", Callback = function()
             if not runningAbobora then Fluent:Notify({Title = "Aviso", Content = "O farm já está parado.", Duration = 3}); return end
-            runningAbobora = false; pinActive = false; local _, hum = getChar(); if hum then hum.Sit = false end
+            runningAbobora = false; pinActive = false; local _, _, hum = getChar(); if hum then hum.Sit = false end
             Fluent:Notify({Title = "Farm", Content = "Farm parado.", Duration = 3})
         end })
     else
@@ -658,6 +658,26 @@ local function LoadMainUI(isPremium)
     end
 
     if isPremium then
+        -- NOVA SESSÃO DE TELEPORTE DE ROTA (FARM OUTROS)
+        Tabs.Outros:AddParagraph({ Title = "Teleporte de Rotas", Content = "Vá instantaneamente para o local de pegar as rotas." })
+        
+        Tabs.Outros:AddButton({ Title = "Teleporte para pegar rota", Callback = function()
+            local char, root, hum = getChar()
+            if root and hum then
+                local targetPos = COORD_ROTA + Vector3.new(0, 3, 0)
+                
+                -- SIT SYSTEM
+                hum.Sit = true
+                task.wait(0.1)
+                root.CFrame = CFrame.new(targetPos)
+                task.wait(0.2)
+                hum.Sit = false
+                
+                Fluent:Notify({Title = "Rota", Content = "Teleportado para a rota!", Duration = 3})
+            end
+        end })
+
+        -- SEÇÃO DE PEÇAS
         Tabs.Outros:AddParagraph({ Title = "Farm de Peças", Content = "Use para coletar peças de armas pelo mapa." })
         Tabs.Outros:AddButton({ Title = "Iniciar Farm Peças", Callback = function()
             if runningPecas then Fluent:Notify({Title = "Aviso", Content = "O farm já está rodando!", Duration = 3}); return end
@@ -665,11 +685,11 @@ local function LoadMainUI(isPremium)
         end })
         Tabs.Outros:AddButton({ Title = "Parar Farm Peças", Callback = function()
             if not runningPecas then Fluent:Notify({Title = "Aviso", Content = "O farm já está parado.", Duration = 3}); return end
-            runningPecas = false; local _, hum = getChar(); if hum then hum.Sit = false end
+            runningPecas = false; local _, _, hum = getChar(); if hum then hum.Sit = false end
             Fluent:Notify({Title = "Farm Peças", Content = "Farm parado.", Duration = 3})
         end })
     else
-        Tabs.Outros:AddParagraph({ Title = "Módulo Bloqueado", Content = "Você entrou com a Entrada Grátis. Insira a Key correta para liberar o Farm de Peças." })
+        Tabs.Outros:AddParagraph({ Title = "Módulo Bloqueado", Content = "Você entrou com a Entrada Grátis. Insira a Key correta para liberar a aba." })
     end
 
     -- VEÍCULOS TAB
@@ -689,23 +709,28 @@ local function LoadMainUI(isPremium)
         })
 
         Tabs.Veiculos:AddButton({ Title = "Atualizar Lista", Callback = function()
-            local spawned = getSpawnedVehicles()
-            
-            if #spawned > 0 then
-                vehicleDropdown:SetValues(spawned) 
-                Fluent:Notify({Title = "Veículos", Content = "Lista atualizada! " .. #spawned .. " carros achados.", Duration = 3})
-            else
-                vehicleDropdown:SetValues({"Nenhum carro"}) 
-                Fluent:Notify({Title = "Aviso", Content = "Nenhum carro spawnado no mapa.", Duration = 3})
+            local success, err = pcall(function()
+                local spawned = getSpawnedVehicles()
+                
+                if #spawned > 0 then
+                    vehicleDropdown:SetValues(spawned) 
+                    Fluent:Notify({Title = "Veículos", Content = "Lista atualizada! " .. #spawned .. " carros achados.", Duration = 3})
+                else
+                    vehicleDropdown:SetValues({"Nenhum carro"}) 
+                    Fluent:Notify({Title = "Aviso", Content = "Nenhum carro spawnado no mapa.", Duration = 3})
+                end
+            end)
+            if not success then
+                Fluent:Notify({Title = "Erro", Content = tostring(err), Duration = 5})
             end
         end })
 
         Tabs.Veiculos:AddToggle("ToggleSpectate", { Title = "Spectar Veículo", Default = false, Callback = function(Value)
             spectateEnabled = Value
-            if Value and spectateTargetModel and spectateTargetModel.PrimaryPart then
+            if Value and spectateTargetModel and spectateTargetModel.PrimaryPart and spectateTargetModel.PrimaryPart:IsA("BasePart") then
                 pcall(function() Workspace:RequestStreamAroundAsync(spectateTargetModel.PrimaryPart.Position) end)
             elseif not Value then
-                local _, hum = getChar()
+                local _, _, hum = getChar()
                 if hum then
                     Camera.CameraType = Enum.CameraType.Custom
                     Camera.CameraSubject = hum
@@ -720,26 +745,25 @@ local function LoadMainUI(isPremium)
             end
             
             local primary = spectateTargetModel.PrimaryPart or spectateTargetModel:FindFirstChildWhichIsA("BasePart")
-            if primary then
-                local char, root = getChar()
-                local hum = char and char:FindFirstChildOfClass("Humanoid")
+            if primary and primary:IsA("BasePart") then
+                local char, root, hum = getChar()
                 if root and hum then
                     pcall(function() Workspace:RequestStreamAroundAsync(primary.Position) end)
                     local targetPos = primary.Position + Vector3.new(0, 3, 0)
                     
                     hum.Sit = true
-                    task.wait(0.05)
+                    task.wait(0.1) 
                     root.CFrame = CFrame.new(targetPos)
                     task.wait(0.2)
                     hum.Sit = false
+                    
                     Fluent:Notify({Title = "Veículos", Content = "Teleportado para o veículo!", Duration = 3})
                 end
             end
         end })
 
         Tabs.Veiculos:AddButton({ Title = "Dar TP no Desmanche", Callback = function()
-            local char, root = getChar()
-            local hum = char and char:FindFirstChildOfClass("Humanoid")
+            local char, root, hum = getChar()
             if not root or not hum then return end
             
             local targetPos = COORD_DESMANCHE + Vector3.new(0, 5, 0)
@@ -747,14 +771,23 @@ local function LoadMainUI(isPremium)
             if hum.SeatPart then
                 local carModel = hum.SeatPart:FindFirstAncestorOfClass("Model")
                 if carModel then
+                    hum.Sit = true
+                    task.wait(0.1)
                     pcall(function()
                         carModel:PivotTo(CFrame.new(targetPos))
                     end)
                     root.CFrame = CFrame.new(targetPos)
+                    task.wait(0.2)
+                    
                     Fluent:Notify({Title = "Desmanche", Content = "Carro e jogador teleportados!", Duration = 3})
                 end
             else
+                hum.Sit = true
+                task.wait(0.1)
                 root.CFrame = CFrame.new(targetPos)
+                task.wait(0.2)
+                hum.Sit = false
+                
                 Fluent:Notify({Title = "Desmanche", Content = "Você foi teleportado (a pé).", Duration = 3})
             end
         end })
