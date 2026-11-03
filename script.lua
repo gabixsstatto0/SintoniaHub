@@ -1,4 +1,4 @@
--- language: Lua, file: sintonia_key_unica_final.lua, target: Roblox (Delta Mobile)
+-- language: Lua, file: sintonia_hub_completo_final.lua, target: Roblox (Delta Mobile)
 
 -- ============ CARREGANDO FLUENT ============
 local Fluent = loadstring(game:HttpGet("https://github.com/dawid-scripts/Fluent/releases/latest/download/main.lua"))()
@@ -61,7 +61,7 @@ local ValidKeys = {
 
 -- ============ SISTEMA DE SALVAMENTO E KEY ÚNICA ============
 local TIME_FILE = "SintoniaRP_Time.dat"
-local USED_FILE = "SintoniaRP_Cache.dat" -- Histórico de keys gastas
+local USED_FILE = "SintoniaRP_Cache.dat" 
 
 local function isKeyUsed(key)
     if not isfile or not readfile then return false end
@@ -125,11 +125,15 @@ local MIN_FLY_TIME = 0.20
 local SPAWN_DELAY = 1.0    
 local PLAYER_RADIUS = 15     
 
-local running = false
+local runningAbobora = false
 local pinTarget = nil
 local pinActive = false
 local aboborasProcessadas = {}
 local spawnTimes = {}
+
+-- ============ VARIÁVEIS FARM PEÇAS ============
+local runningPecas = false
+local pecasColetadas = 0
 
 -- ============ FOV (DRAWING API) ============
 local fovCircle = Drawing.new("Circle")
@@ -220,7 +224,7 @@ Players.PlayerRemoving:Connect(function(player)
     if tracers[player] then tracers[player]:Destroy(); tracers[player] = nil end
 end)
 
--- ============ FUNÇÕES DO FARM ABÓBORA ============
+-- ============ FUNÇÕES GERAIS ============
 local function getChar()
     local c = LP.Character
     if not c then return nil end
@@ -230,6 +234,7 @@ local function getChar()
     return hrp, hum
 end
 
+-- ============ FUNÇÕES DO FARM ABÓBORA ============
 local function getAboboras()
     local list = {}
     if #aboborasProcessadas > 50 then aboborasProcessadas = {}; spawnTimes = {} end
@@ -274,18 +279,18 @@ local function flyToAndLock(targetCF)
 end
 
 RunService.Heartbeat:Connect(function()
-    if not running or not pinActive or not pinTarget then return end
+    if not pinActive or not pinTarget then return end
     local hrp = getChar()
     if hrp then hrp.CFrame = pinTarget; hrp.AssemblyLinearVelocity = Vector3.zero; hrp.AssemblyAngularVelocity = Vector3.zero end
 end)
 
-local function runFarmLoop()
-    running = true
+local function runAboboraLoop()
+    runningAbobora = true
     local hrp, hum = getChar()
     if hrp then pinTarget = hrp.CFrame end
     pinActive = true
 
-    while running do
+    while runningAbobora do
         local hrp, hum = getChar()
         if not hrp then task.wait(0.5) else
             local list = getAboboras()
@@ -298,7 +303,7 @@ local function runFarmLoop()
                     if not spawnTimes[target.obj] then spawnTimes[target.obj] = tick() end
                     local elapsed = tick() - spawnTimes[target.obj]
                     if elapsed < SPAWN_DELAY then
-                        Fluent:Notify({Title = "Farm", Content = "Esperando a abóbora cair (1s)...", Duration = 1})
+                        Fluent:Notify({Title = "Farm Abóbora", Content = "Esperando a abóbora cair (1s)...", Duration = 1})
                         task.wait(SPAWN_DELAY - elapsed)
                     end
                     if not target.part.Parent then table.insert(aboborasProcessadas, target.obj); continue end
@@ -313,14 +318,14 @@ local function runFarmLoop()
                     end
                     if playerNear then
                         local disabledTime = 0
-                        while running do
+                        while runningAbobora do
                             if not target.obj.Parent or not target.part.Parent then break end
                             if target.prompt and target.prompt.Enabled then firePrompt(target.prompt); disabledTime = 0 else disabledTime = disabledTime + 0.1 end
                             if disabledTime >= 2.0 then break end
                             task.wait(0.1)
                         end
                     else
-                        while running do
+                        while runningAbobora do
                             if not target.obj.Parent or not target.part.Parent then break end
                             if target.prompt and target.prompt.Enabled then firePrompt(target.prompt) end
                             task.wait(0.1)
@@ -334,6 +339,85 @@ local function runFarmLoop()
     end
     pinActive = false
     local _, hum = getChar(); if hum then hum.Sit = false end
+end
+
+-- ============ FUNÇÕES DO FARM PEÇAS ============
+local function findActivePromptPecas()
+    local bestPrompt, bestPos, bestDist = nil, nil, math.huge
+    local _, root = getChar()
+    if not root then return nil end
+    
+    for _, obj in ipairs(Workspace:GetDescendants()) do
+        if obj:IsA("ProximityPrompt") and obj.Enabled and obj.Parent then
+            local action = string.lower(obj.ActionText or "")
+            local objText = string.lower(obj.ObjectText or "")
+            
+            local isDinheiro = action:find("dinheiro") or objText:find("dinheiro")
+            local isInicial = action:find("interagir") or objText == "prompt"
+            local hasPeca = action:find("peça") or action:find("peca") or action:find("parte") or objText:find("peça") or objText:find("peca") or objText:find("parte")
+            
+            if hasPeca and not isDinheiro and not isInicial then
+                local parent = obj.Parent
+                local pos
+                if parent:IsA("BasePart") then pos = parent.Position
+                elseif parent:IsA("Model") then
+                    local ok, pivot = pcall(function() return parent:GetPivot().Position end)
+                    if ok then pos = pivot end
+                end
+                
+                if pos then
+                    local dist = (pos - root.Position).Magnitude
+                    if dist < bestDist then
+                        bestDist = dist; bestPrompt = obj; bestPos = pos
+                    end
+                end
+            end
+        end
+    end
+    return bestPrompt, bestPos
+end
+
+local function runPecasLoop()
+    runningPecas = true
+    pecasColetadas = 0
+    
+    while runningPecas do
+        local prompt, targetPos = findActivePromptPecas()
+        
+        if prompt and targetPos then
+            local target = targetPos + Vector3.new(0, 2, 0)
+            local char, root = getChar()
+            local hum = char and char:FindFirstChildOfClass("Humanoid")
+            
+            if root and hum then
+                hum.Sit = true
+                task.wait(0.05)
+                root.CFrame = CFrame.new(target)
+                task.wait(0.15) 
+                hum.Sit = false
+                
+                pcall(function()
+                    prompt.HoldDuration = 0
+                    if typeof(fireproximityprompt) == "function" then fireproximityprompt(prompt) end
+                    prompt:InputHoldBegin(); prompt:InputHoldEnd()
+                end)
+                
+                task.wait(1.5) -- Delay de 1.5s da peça
+                
+                if prompt and prompt.Parent and prompt.Enabled then
+                    pcall(function()
+                        if typeof(fireproximityprompt) == "function" then fireproximityprompt(prompt) end
+                    end)
+                end
+                
+                pecasColetadas += 1
+                Fluent:Notify({Title = "Farm Peças", Content = "Peça coletada! Total: " .. pecasColetadas, Duration = 2})
+            end
+        else
+            task.wait(0.5)
+        end
+        task.wait(0.1)
+    end
 end
 
 -- ============ LOOP PRINCIPAL ============
@@ -463,9 +547,11 @@ local function LoadMainUI(isPremium)
     local Tabs = {
         PvP = Window:AddTab({ Title = "Área PvP", Icon = "crosshair" }),
         Evento = Window:AddTab({ Title = "Farm Evento", Icon = "gift" }),
+        Outros = Window:AddTab({ Title = "Farm Outros", Icon = "box" }),
         Config = Window:AddTab({ Title = "Configurações", Icon = "settings" })
     }
 
+    -- PVP TAB
     Tabs.PvP:AddParagraph({ Title = "Aimbot", Content = "Configurações de mira e FOV" })
     Tabs.PvP:AddToggle("ToggleAimbot", { Title = "Ativar Aimbot", Default = false, Callback = function(Value)
         aimbotEnabled = Value
@@ -494,19 +580,36 @@ local function LoadMainUI(isPremium)
         if espTracersEnabled then for _, p in ipairs(Players:GetPlayers()) do createTracer(p) end else clearTracers() end
     end })
 
+    -- EVENTO TAB
     if isPremium then
         Tabs.Evento:AddParagraph({ Title = "Farm de Abóboras", Content = "Use para coletar as abóboras do evento." })
-        Tabs.Evento:AddButton({ Title = "Iniciar Farm", Callback = function()
-            if running then Fluent:Notify({Title = "Aviso", Content = "O farm já está rodando!", Duration = 3}); return end
-            Fluent:Notify({Title = "Farm", Content = "Farm iniciado!", Duration = 3}); task.spawn(runFarmLoop)
+        Tabs.Evento:AddButton({ Title = "Iniciar Farm Abóbora", Callback = function()
+            if runningAbobora then Fluent:Notify({Title = "Aviso", Content = "O farm já está rodando!", Duration = 3}); return end
+            Fluent:Notify({Title = "Farm", Content = "Farm iniciado!", Duration = 3}); task.spawn(runAboboraLoop)
         end })
-        Tabs.Evento:AddButton({ Title = "Parar Farm", Callback = function()
-            if not running then Fluent:Notify({Title = "Aviso", Content = "O farm já está parado.", Duration = 3}); return end
-            running = false; pinActive = false; local _, hum = getChar(); if hum then hum.Sit = false end
+        Tabs.Evento:AddButton({ Title = "Parar Farm Abóbora", Callback = function()
+            if not runningAbobora then Fluent:Notify({Title = "Aviso", Content = "O farm já está parado.", Duration = 3}); return end
+            runningAbobora = false; pinActive = false; local _, hum = getChar(); if hum then hum.Sit = false end
             Fluent:Notify({Title = "Farm", Content = "Farm parado.", Duration = 3})
         end })
     else
         Tabs.Evento:AddParagraph({ Title = "Módulo Bloqueado", Content = "Você entrou com a Entrada Grátis. Insira a Key correta para liberar o Farm de Abóboras." })
+    end
+
+    -- OUTROS TAB
+    if isPremium then
+        Tabs.Outros:AddParagraph({ Title = "Farm de Peças", Content = "Use para coletar peças de armas pelo mapa." })
+        Tabs.Outros:AddButton({ Title = "Iniciar Farm Peças", Callback = function()
+            if runningPecas then Fluent:Notify({Title = "Aviso", Content = "O farm já está rodando!", Duration = 3}); return end
+            Fluent:Notify({Title = "Farm Peças", Content = "Caçando peças iniciado!", Duration = 3}); task.spawn(runPecasLoop)
+        end })
+        Tabs.Outros:AddButton({ Title = "Parar Farm Peças", Callback = function()
+            if not runningPecas then Fluent:Notify({Title = "Aviso", Content = "O farm já está parado.", Duration = 3}); return end
+            runningPecas = false; local _, hum = getChar(); if hum then hum.Sit = false end
+            Fluent:Notify({Title = "Farm Peças", Content = "Farm parado.", Duration = 3})
+        end })
+    else
+        Tabs.Outros:AddParagraph({ Title = "Módulo Bloqueado", Content = "Você entrou com a Entrada Grátis. Insira a Key correta para liberar o Farm de Peças." })
     end
 
     Window:SelectTab(1)
@@ -597,8 +700,8 @@ local function OpenKeySystem()
                 statusText.Text = "Key válida! Carregando..."
                 statusText.TextColor3 = Color3.fromRGB(50, 255, 50)
                 
-                markKeyAsUsed(key) -- Bloqueia a key no histórico
-                saveKeyTime(ValidKeys[key]) -- Salva o tempo de expiração
+                markKeyAsUsed(key)
+                saveKeyTime(ValidKeys[key])
                 
                 task.wait(1)
                 keyGui:Destroy()
