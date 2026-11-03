@@ -1,4 +1,4 @@
--- language: Lua, file: sintonia_hub_veiculos_fix3.lua, target: Roblox (Delta Mobile)
+-- language: Lua, file: sintonia_hub_veiculos_fix4.lua, target: Roblox (Delta Mobile)
 
 -- ============ CARREGANDO FLUENT ============
 local Fluent = loadstring(game:HttpGet("https://github.com/dawid-scripts/Fluent/releases/latest/download/main.lua"))()
@@ -428,23 +428,40 @@ end
 
 -- ============ FUNÇÕES DE VEÍCULOS ============
 local function getSpawnedVehicles()
+    local uniqueNames = {}
     local list = {}
-    local seenModels = {}
-    vehicleMap = {} -- Limpa o mapa antigo pra não bugar
+    vehicleMap = {}
     
+    local _, myRoot = getChar()
+    local myPos = myRoot and myRoot.Position or Vector3.zero
+
     for _, obj in ipairs(Workspace:GetDescendants()) do
         if obj:IsA("VehicleSeat") then
             local carModel = obj:FindFirstAncestorOfClass("Model")
-            if carModel and not seenModels[carModel] and carModel:IsDescendantOf(Workspace) then
+            if carModel and carModel:IsDescendantOf(Workspace) then
                 local primary = carModel.PrimaryPart or carModel:FindFirstChildWhichIsA("BasePart")
                 if primary then
-                    seenModels[carModel] = true
-                    table.insert(list, carModel.Name)
-                    vehicleMap[carModel.Name] = carModel
+                    local name = carModel.Name
+                    local dist = (primary.Position - myPos).Magnitude
+                    
+                    if not uniqueNames[name] then
+                        uniqueNames[name] = {model = carModel, dist = dist}
+                        table.insert(list, name)
+                    else
+                        -- Se já tem o nome, só troca se o novo for mais perto
+                        if dist < uniqueNames[name].dist then
+                            uniqueNames[name] = {model = carModel, dist = dist}
+                        end
+                    end
                 end
             end
         end
     end
+    
+    for name, data in pairs(uniqueNames) do
+        vehicleMap[name] = data.model
+    end
+    
     return list
 end
 
@@ -675,21 +692,47 @@ local function LoadMainUI(isPremium)
             local spawned = getSpawnedVehicles()
             
             if #spawned > 0 then
-                vehicleDropdown:SetValues(spawned) -- CORREÇÃO AQUI
+                vehicleDropdown:SetValues(spawned) 
                 Fluent:Notify({Title = "Veículos", Content = "Lista atualizada! " .. #spawned .. " carros achados.", Duration = 3})
             else
-                vehicleDropdown:SetValues({"Nenhum carro"}) -- CORREÇÃO AQUI
+                vehicleDropdown:SetValues({"Nenhum carro"}) 
                 Fluent:Notify({Title = "Aviso", Content = "Nenhum carro spawnado no mapa.", Duration = 3})
             end
         end })
 
         Tabs.Veiculos:AddToggle("ToggleSpectate", { Title = "Spectar Veículo", Default = false, Callback = function(Value)
             spectateEnabled = Value
-            if not Value then
+            if Value and spectateTargetModel and spectateTargetModel.PrimaryPart then
+                pcall(function() Workspace:RequestStreamAroundAsync(spectateTargetModel.PrimaryPart.Position) end)
+            elseif not Value then
                 local _, hum = getChar()
                 if hum then
                     Camera.CameraType = Enum.CameraType.Custom
                     Camera.CameraSubject = hum
+                end
+            end
+        end })
+
+        Tabs.Veiculos:AddButton({ Title = "Teleportar no Carro", Callback = function()
+            if not spectateTargetModel or not spectateTargetModel.Parent then
+                Fluent:Notify({Title = "Erro", Content = "Nenhum carro selecionado.", Duration = 3})
+                return
+            end
+            
+            local primary = spectateTargetModel.PrimaryPart or spectateTargetModel:FindFirstChildWhichIsA("BasePart")
+            if primary then
+                local char, root = getChar()
+                local hum = char and char:FindFirstChildOfClass("Humanoid")
+                if root and hum then
+                    pcall(function() Workspace:RequestStreamAroundAsync(primary.Position) end)
+                    local targetPos = primary.Position + Vector3.new(0, 3, 0)
+                    
+                    hum.Sit = true
+                    task.wait(0.05)
+                    root.CFrame = CFrame.new(targetPos)
+                    task.wait(0.2)
+                    hum.Sit = false
+                    Fluent:Notify({Title = "Veículos", Content = "Teleportado para o veículo!", Duration = 3})
                 end
             end
         end })
