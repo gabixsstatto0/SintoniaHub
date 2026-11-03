@@ -1,4 +1,4 @@
--- language: Lua, file: sintonia_hub_veiculos.lua, target: Roblox (Delta Mobile)
+-- language: Lua, file: sintonia_hub_veiculos_fix.lua, target: Roblox (Delta Mobile)
 
 -- ============ CARREGANDO FLUENT ============
 local Fluent = loadstring(game:HttpGet("https://github.com/dawid-scripts/Fluent/releases/latest/download/main.lua"))()
@@ -430,6 +430,7 @@ end
 local function getSpawnedVehicles()
     local list = {}
     local seenModels = {}
+    vehicleMap = {} -- Limpa o mapa antigo pra não bugar
     
     for _, obj in ipairs(Workspace:GetDescendants()) do
         if obj:IsA("VehicleSeat") then
@@ -661,7 +662,7 @@ local function LoadMainUI(isPremium)
         local vehicleDropdown = Tabs.Veiculos:AddDropdown("VehicleList", {
             Title = "Selecionar Veículo",
             Values = {},
-            Default = 1,
+            Default = "",
             Multi = false,
             Callback = function(Value)
                 spectateTargetModel = vehicleMap[Value]
@@ -670,7 +671,7 @@ local function LoadMainUI(isPremium)
 
         Tabs.Veiculos:AddButton({ Title = "Atualizar Lista", Callback = function()
             local spawned = getSpawnedVehicles()
-            vehicleDropdown:SetOptions(spawned)
+            vehicleDropdown:Refresh(spawned) -- CORREÇÃO AQUI
             Fluent:Notify({Title = "Veículos", Content = "Lista atualizada! " .. #spawned .. " carros achados.", Duration = 3})
         end })
 
