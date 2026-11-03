@@ -1,4 +1,4 @@
--- language: Lua, file: sintonia_hub_tp_map.lua, target: Roblox (Delta Mobile)
+-- language: Lua, file: sintonia_hub_autopesca.lua, target: Roblox (Delta Mobile)
 
 -- ============ CARREGANDO FLUENT ============
 local Fluent = loadstring(game:HttpGet("https://github.com/dawid-scripts/Fluent/releases/latest/download/main.lua"))()
@@ -134,6 +134,11 @@ local spawnTimes = {}
 -- ============ VARIÁVEIS FARM PEÇAS ============
 local runningPecas = false
 local pecasColetadas = 0
+
+-- ============ VARIÁVEIS AUTO PESCAR ============
+local runningPesca = false
+local savedPescaCFrame = nil
+local COORD_PESCA = Vector3.new(-2596, 122, -3040)
 
 -- ============ VARIÁVEIS VEÍCULOS E TELEPORTES ============
 local vehicleMap = {}
@@ -416,12 +421,70 @@ local function runPecasLoop()
                 end
                 
                 pecasColetadas += 1
-                -- Notificação de peça coletada removida daqui!
             end
         else
             task.wait(0.5)
         end
         task.wait(0.1)
+    end
+end
+
+-- ============ FUNÇÕES DO AUTO PESCAR ============
+local function runPescaLoop()
+    runningPesca = true
+    local char, root, hum = getChar()
+    
+    if not root or not hum then return end
+    
+    -- Salva a posição atual antes de ir
+    savedPescaCFrame = root.CFrame
+    
+    -- Vai pra pesca
+    hum.Sit = true
+    task.wait(0.1)
+    root.CFrame = CFrame.new(COORD_PESCA + Vector3.new(0, 3, 0))
+    task.wait(0.5)
+    hum.Sit = false
+    
+    while runningPesca do
+        local char2, root2, hum2 = getChar()
+        if not root2 then task.wait(0.5) else
+            
+            -- Acha o prompt mais perto
+            local bestPrompt = nil
+            local shortest = 20 -- Alcance de 20 studs
+            local myPos = root2.Position
+            
+            for _, obj in ipairs(Workspace:GetDescendants()) do
+                if obj:IsA("ProximityPrompt") and obj.Enabled then
+                    local parent = obj.Parent
+                    local pos
+                    if parent:IsA("BasePart") then pos = parent.Position
+                    elseif parent:IsA("Model") then
+                        local ok, pivot = pcall(function() return parent:GetPivot().Position end)
+                        if ok then pos = pivot end
+                    end
+                    
+                    if pos then
+                        local dist = (pos - myPos).Magnitude
+                        if dist < shortest then
+                            shortest = dist
+                            bestPrompt = obj
+                        end
+                    end
+                end
+            end
+            
+            if bestPrompt then
+                pcall(function()
+                    bestPrompt.HoldDuration = 0
+                    if typeof(fireproximityprompt) == "function" then fireproximityprompt(bestPrompt) end
+                    bestPrompt:InputHoldBegin(); bestPrompt:InputHoldEnd()
+                end)
+            end
+            
+            task.wait(1.5) -- Delay de 1.5s pra não floodar e bugar a animação
+        end
     end
 end
 
@@ -477,7 +540,6 @@ RunService.RenderStepped:Connect(function()
             Camera.CameraSubject = seat
         end
     elseif spectateEnabled and (not spectateTargetModel or not spectateTargetModel.Parent) then
-        -- Se o carro sumir, volta pro player
         local _, _, hum = getChar()
         if hum then
             Camera.CameraType = Enum.CameraType.Custom
@@ -610,7 +672,7 @@ local function LoadMainUI(isPremium)
         Evento = Window:AddTab({ Title = "Farm Evento", Icon = "gift" }),
         Outros = Window:AddTab({ Title = "Farm Outros", Icon = "box" }),
         Veiculos = Window:AddTab({ Title = "Veículos", Icon = "car" }),
-        Teleport = Window:AddTab({ Title = "Teleport", Icon = "map" }), -- NOVA ABA AQUI
+        Teleport = Window:AddTab({ Title = "Teleport", Icon = "map" }), 
         Config = Window:AddTab({ Title = "Configurações", Icon = "settings" })
     }
 
@@ -658,20 +720,37 @@ local function LoadMainUI(isPremium)
     end
 
     if isPremium then
-        -- NOVA SESSÃO DE TELEPORTE DE ROTA (FARM OUTROS)
+        -- AUTO PESCAR (NOVO)
+        Tabs.Outros:AddParagraph({ Title = "Auto Pescar", Content = "Teleporta para a pesca e spamma o prompt." })
+        Tabs.Outros:AddButton({ Title = "Iniciar Auto Pescar", Callback = function()
+            if runningPesca then Fluent:Notify({Title = "Aviso", Content = "A pesca já está rodando!", Duration = 3}); return end
+            Fluent:Notify({Title = "Pesca", Content = "Indo para o local de pesca...", Duration = 3}); task.spawn(runPescaLoop)
+        end })
+        Tabs.Outros:AddButton({ Title = "Parar Auto Pescar", Callback = function()
+            if not runningPesca then Fluent:Notify({Title = "Aviso", Content = "A pesca já está parada.", Duration = 3}); return end
+            runningPesca = false; 
+            local _, root, hum = getChar()
+            if root and hum and savedPescaCFrame then
+                hum.Sit = true
+                task.wait(0.1)
+                root.CFrame = savedPescaCFrame
+                task.wait(0.2)
+                hum.Sit = false
+            end
+            Fluent:Notify({Title = "Pesca", Content = "Pesca parada e voltou ao local.", Duration = 3})
+        end })
+
+        -- TELEPORTE DE ROTAS
         Tabs.Outros:AddParagraph({ Title = "Teleporte de Rotas", Content = "Vá instantaneamente para o local de pegar as rotas." })
-        
         Tabs.Outros:AddButton({ Title = "Teleporte para pegar rota", Callback = function()
             local char, root, hum = getChar()
             if root and hum then
                 local targetPos = COORD_ROTA + Vector3.new(0, 3, 0)
-                
                 hum.Sit = true
                 task.wait(0.1)
                 root.CFrame = CFrame.new(targetPos)
                 task.wait(0.2)
                 hum.Sit = false
-                
                 Fluent:Notify({Title = "Rota", Content = "Teleportado para a rota!", Duration = 3})
             end
         end })
@@ -798,7 +877,6 @@ local function LoadMainUI(isPremium)
     if isPremium then
         Tabs.Teleport:AddParagraph({ Title = "Teleporte para Locais", Content = "Vá instantaneamente para os pontos do mapa." })
 
-        -- Tabela com todos os locais que você mandou
         local locations = {
             ["Lavagem de dinheiro"] = Vector3.new(-391, 143, -4000),
             ["Fabricar armas"] = Vector3.new(-429, 122, -4002),
@@ -821,7 +899,6 @@ local function LoadMainUI(isPremium)
             ["Pesca"] = Vector3.new(-2596, 122, -3040)
         }
 
-        -- Loop para criar um botão pra cada local
         for name, pos in pairs(locations) do
             Tabs.Teleport:AddButton({
                 Title = "TP: " .. name,
@@ -830,7 +907,6 @@ local function LoadMainUI(isPremium)
                     if root and hum then
                         local targetPos = pos + Vector3.new(0, 3, 0)
                         
-                        -- SIT SYSTEM
                         hum.Sit = true
                         task.wait(0.1)
                         root.CFrame = CFrame.new(targetPos)
