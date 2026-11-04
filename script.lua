@@ -1,4 +1,4 @@
--- language: Lua, file: sintonia_hub_completo_pesca_fix.lua, target: Roblox (Delta Mobile)
+-- language: Lua, file: sintonia_hub_completo_final_v3.lua, target: Roblox (Delta Mobile)
 
 -- ============ CARREGANDO FLUENT ============
 local Fluent = loadstring(game:HttpGet("https://github.com/dawid-scripts/Fluent/releases/latest/download/main.lua"))()
@@ -9,6 +9,8 @@ local Workspace = game:GetService("Workspace")
 local RunService = game:GetService("RunService")
 local TweenService = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local TextChatService = game:GetService("TextChatService")
 local LP = Players.LocalPlayer
 local Camera = Workspace.CurrentCamera
 
@@ -145,7 +147,7 @@ local vehicleMap = {}
 local spectateEnabled = false
 local spectateTargetModel = nil
 local COORD_DESMANCHE = Vector3.new(-1973, 122, -4065)
-local COORD_ROTA = Vector3.new(-492, 143, -3996)
+local COORD_GARAGEM_PRACA = Vector3.new(-1002, 129, -4642)
 
 -- ============ FOV (DRAWING API) ============
 local fovCircle = Drawing.new("Circle")
@@ -244,6 +246,35 @@ local function getChar()
     local hum = c:FindFirstChildOfClass("Humanoid")
     if not hrp or not hum or hum.Health <= 0 then return nil, nil, nil end
     return c, hrp, hum
+end
+
+local function clickBtn(guiObj)
+    if guiObj then
+        pcall(function()
+            if typeof(firesignal) == "function" then
+                firesignal(guiObj.MouseButton1Click)
+            elseif guiObj.Activate then
+                guiObj:Activate()
+            end
+        end)
+        return true
+    end
+    return false
+end
+
+local function enviarComandoChat(msg)
+    local success = pcall(function()
+        if TextChatService.ChatVersion == Enum.ChatVersion.TextChatService then
+            local channel = TextChatService:FindFirstChild("TextChannels") and TextChatService.TextChannels:FindFirstChild("RBXGeneral")
+            if channel then channel:SendAsync(msg) end
+        else
+            local chatEvents = ReplicatedStorage:FindFirstChild("DefaultChatSystemChatEvents")
+            if chatEvents and chatEvents:FindFirstChild("SayMessageRequest") then
+                chatEvents.SayMessageRequest:FireServer(msg, "All")
+            end
+        end
+    end)
+    return success
 end
 
 -- ============ FUNÇÕES DO FARM ABÓBORA ============
@@ -369,6 +400,27 @@ local function stopAboboraFarm()
 end
 
 -- ============ FUNÇÕES DO FARM PEÇAS ============
+local function pegarRota()
+    local playerGui = LP:FindFirstChild("PlayerGui")
+    local rotasUI = playerGui and playerGui:FindFirstChild("RotasUI")
+    
+    if rotasUI then
+        local bgFrame = rotasUI:FindFirstChild("BGFrame")
+        local items = bgFrame and bgFrame:FindFirstChild("Items")
+        local farmItem = items and items:FindFirstChild("Farm de Partes de Arma")
+        
+        if farmItem then
+            clickBtn(farmItem)
+            Fluent:Notify({Title = "Farm Peças", Content = "Rota selecionada!", Duration = 3})
+            task.wait(1) 
+            return true
+        end
+    end
+    
+    Fluent:Notify({Title = "Farm Peças", Content = "Abra o painel de rotas primeiro!", Duration = 3})
+    return false
+end
+
 local function findActivePromptPecas()
     local bestPrompt, bestPos, bestDist = nil, nil, math.huge
     local _, root = getChar()
@@ -427,7 +479,7 @@ local function runPecasLoop()
                     prompt:InputHoldBegin(); prompt:InputHoldEnd()
                 end)
                 
-                task.wait(1.5)
+                task.wait(1.5) 
                 
                 if prompt and prompt.Parent and prompt.Enabled then
                     pcall(function()
@@ -446,48 +498,94 @@ end
 
 local function stopPecasFarm()
     runningPecas = false
-    local _, _, hum = getChar()
-    if hum then hum.Sit = false end
-    Fluent:Notify({Title = "Farm Peças", Content = "Farm parado.", Duration = 3})
-end
-
--- ============ FUNÇÕES DO AUTO PESCAR (NOVO) ============
-local function clickBtn(guiObj)
-    if guiObj then
-        pcall(function()
-            if typeof(firesignal) == "function" then
-                firesignal(guiObj.MouseButton1Click)
-            elseif guiObj.Activate then
-                guiObj:Activate()
-            end
-        end)
-        return true
+    local _, root, hum = getChar()
+    
+    -- TP para Garagem da Praça
+    if root and hum then
+        hum.Sit = true
+        task.wait(0.1)
+        root.CFrame = CFrame.new(COORD_GARAGEM_PRACA + Vector3.new(0, 3, 0))
+        task.wait(0.3)
+        hum.Sit = false
     end
-    return false
+    
+    -- Envia o comando no chat
+    enviarComandoChat("/pararfarm")
+    
+    Fluent:Notify({Title = "Farm Peças", Content = "Farm parado. TP pra garagem e /pararfarm enviado.", Duration = 3})
 end
 
-local function clickHotbar()
+-- ============ FUNÇÕES DO AUTO PESCAR ============
+local function verificarVaraNoInventario()
     local playerGui = LP:FindFirstChild("PlayerGui")
     local invUI = playerGui and playerGui:FindFirstChild("InventoryUI")
-    if not invUI then return false end
     
-    local slotsContainer = invUI:FindFirstChild("SlotsContainer")
-    local hotbar = slotsContainer and slotsContainer:FindFirstChild("Hotbar")
-    local slots = hotbar and hotbar:FindFirstChild("Slots")
+    if not invUI then return false, nil end
     
-    if slots then
-        for _, hSlot in ipairs(slots:GetChildren()) do
-            if hSlot.Name:find("Slot") then
-                local img = hSlot:FindFirstChild("Img")
-                if img then
-                    clickBtn(img)
-                    task.wait(0.1)
+    local invPessoal = invUI:FindFirstChild("InvFrame") and invUI.InvFrame:FindFirstChild("InvPessoal")
+    if not invPessoal then return false, nil end
+    
+    local conteudo = invPessoal:FindFirstChild("ConteudoInv")
+    if not conteudo then return false, nil end
+    
+    for _, slot in ipairs(conteudo:GetChildren()) do
+        if slot.Name:find("Slot") then
+            for _, desc in ipairs(slot:GetDescendants()) do
+                if (desc:IsA("TextLabel") or desc:IsA("TextButton")) and string.lower(desc.Text or ""):find("vara") then
+                    return true, slot
                 end
             end
         end
-        return true
     end
-    return false
+    
+    if LP:FindFirstChild("Backpack") and LP.Backpack:FindFirstChild("Vara") then return true, nil end
+    if LP.Character and LP.Character:FindFirstChild("Vara") then return true, nil end
+    
+    return false, nil
+end
+
+local function equiparVara(slotVara)
+    local playerGui = LP:FindFirstChild("PlayerGui")
+    local invUI = playerGui and playerGui:FindFirstChild("InventoryUI")
+    
+    if invUI then
+        local invPessoal = invUI:FindFirstChild("InvFrame") and invUI.InvFrame:FindFirstChild("InvPessoal")
+        
+        if slotVara then
+            local btnIn = slotVara:FindFirstChild("In")
+            if btnIn then
+                clickBtn(btnIn)
+                task.wait(0.3)
+            end
+        end
+        
+        if invPessoal then
+            local xBtns = invPessoal:FindFirstChild("XBtns")
+            if xBtns then
+                local usarBtn = xBtns:FindFirstChild("UsarBtn")
+                if usarBtn then
+                    clickBtn(usarBtn)
+                    task.wait(0.8)
+                end
+            end
+        end
+        
+        local slotsContainer = invUI:FindFirstChild("SlotsContainer")
+        local hotbar = slotsContainer and slotsContainer:FindFirstChild("Hotbar")
+        local slots = hotbar and hotbar:FindFirstChild("Slots")
+        
+        if slots then
+            for _, hSlot in ipairs(slots:GetChildren()) do
+                if hSlot.Name:find("Slot") then
+                    local img = hSlot:FindFirstChild("Img")
+                    if img then
+                        clickBtn(img)
+                        task.wait(0.1)
+                    end
+                end
+            end
+        end
+    end
 end
 
 local function tpPesca()
@@ -555,10 +653,7 @@ local function startPescaFarm()
     task.spawn(function()
         local char = LP.Character
         local backpack = LP:FindFirstChild("Backpack")
-        local playerGui = LP:FindFirstChild("PlayerGui")
-        local invUI = playerGui and playerGui:FindFirstChild("InventoryUI")
         
-        -- 1. Já tá na mão?
         if char and char:FindFirstChild("Vara") then
             Fluent:Notify({Title = "Pesca", Content = "Vara já está na mão! Iniciando...", Duration = 3})
             tpPesca()
@@ -567,7 +662,6 @@ local function startPescaFarm()
             return
         end
         
-        -- 2. Já tá na mochila (Backpack) por já ter clicado em Usar?
         if backpack and backpack:FindFirstChild("Vara") then
             Fluent:Notify({Title = "Pesca", Content = "Puxando Vara da mochila...", Duration = 3})
             backpack.Vara.Parent = char
@@ -578,56 +672,16 @@ local function startPescaFarm()
             return
         end
         
-        -- 3. Não tá em lugar nenhum. Vai pro inventário
-        if not invUI then
-            Fluent:Notify({Title = "Erro", Content = "Abra o inventário ou compre uma Vara.", Duration = 5})
-            runningPesca = false
-            return
-        end
-        
-        -- Procura a Vara no inventário visual
-        local invPessoal = invUI:FindFirstChild("InvFrame") and invUI.InvFrame:FindFirstChild("InvPessoal")
-        local conteudo = invPessoal and invPessoal:FindFirstChild("ConteudoInv")
-        local slotVara = nil
-        
-        if conteudo then
-            for _, slot in ipairs(conteudo:GetChildren()) do
-                if slot.Name:find("Slot") then
-                    for _, desc in ipairs(slot:GetDescendants()) do
-                        if (desc:IsA("TextLabel") or desc:IsA("TextButton")) and string.lower(desc.Text or ""):find("vara") then
-                            slotVara = slot
-                            break
-                        end
-                    end
-                end
-                if slotVara then break end
-            end
-        end
-        
-        if not slotVara then
+        local temVara, slotVara = verificarVaraNoInventario()
+        if not temVara then
             Fluent:Notify({Title = "Erro", Content = "Você não tem uma Vara! Compre uma.", Duration = 5})
             runningPesca = false
             return
         end
         
-        -- Clica no slot da Vara
-        local btnIn = slotVara:FindFirstChild("In")
-        if btnIn then clickBtn(btnIn); task.wait(0.3) end
+        equiparVara(slotVara)
+        task.wait(1)
         
-        -- Clica em Usar
-        if invPessoal then
-            local xBtns = invPessoal:FindFirstChild("XBtns")
-            if xBtns then
-                local usarBtn = xBtns:FindFirstChild("UsarBtn")
-                if usarBtn then clickBtn(usarBtn); task.wait(0.8) end
-            end
-        end
-        
-        -- Pega na mão (Hotbar)
-        clickHotbar()
-        task.wait(0.5)
-        
-        -- Verifica novamente
         char = LP.Character
         backpack = LP:FindFirstChild("Backpack")
         
@@ -912,7 +966,6 @@ local function LoadMainUI(isPremium)
     end
 
     if isPremium then
-        -- SISTEMA DE PESCA NOVO AQUI
         Tabs.Outros:AddParagraph({ Title = "Auto Pescar", Content = "Verifica a Vara, equipa e pesca automaticamente." })
         Tabs.Outros:AddButton({ Title = "Iniciar Auto Pescar", Callback = function()
             if runningPesca then Fluent:Notify({Title = "Aviso", Content = "A pesca já está rodando!", Duration = 3}); return end
@@ -923,24 +976,14 @@ local function LoadMainUI(isPremium)
             stopPescaFarm()
         end })
 
-        Tabs.Outros:AddParagraph({ Title = "Teleporte de Rotas", Content = "Vá instantaneamente para o local de pegar as rotas." })
-        Tabs.Outros:AddButton({ Title = "Teleporte para pegar rota", Callback = function()
-            local char, root, hum = getChar()
-            if root and hum then
-                local targetPos = COORD_ROTA + Vector3.new(0, 3, 0)
-                hum.Sit = true
-                task.wait(0.1)
-                root.CFrame = CFrame.new(targetPos)
-                task.wait(0.2)
-                hum.Sit = false
-                Fluent:Notify({Title = "Rota", Content = "Teleportado para a rota!", Duration = 3})
-            end
-        end })
-
-        Tabs.Outros:AddParagraph({ Title = "Farm de Peças", Content = "Use para coletar peças de armas pelo mapa." })
+        Tabs.Outros:AddParagraph({ Title = "Farm de Peças", Content = "Pega a rota, coleta peças. Ao parar, volta pra garagem." })
         Tabs.Outros:AddButton({ Title = "Iniciar Farm Peças", Callback = function()
             if runningPecas then Fluent:Notify({Title = "Aviso", Content = "O farm já está rodando!", Duration = 3}); return end
-            Fluent:Notify({Title = "Farm Peças", Content = "Caçando peças iniciado!", Duration = 3}); task.spawn(runPecasLoop)
+            
+            if pegarRota() then
+                Fluent:Notify({Title = "Farm Peças", Content = "Caçando peças iniciado!", Duration = 3}); 
+                task.spawn(runPecasLoop)
+            end
         end })
         Tabs.Outros:AddButton({ Title = "Parar Farm Peças", Callback = function()
             if not runningPecas then return end
