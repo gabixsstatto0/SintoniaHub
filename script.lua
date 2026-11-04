@@ -16,7 +16,6 @@ local Camera = Workspace.CurrentCamera
 
 -- ============ BANCO DE DADOS DE KEYS ============
 local ValidKeys = {
-    -- 1 HORA
     ["KEY-RFT72C79ZTGN"] = 3600, ["KEY-4SI4SYG4ATC0"] = 3600, ["KEY-2MONBPLE8MGS"] = 3600,
     ["KEY-QQGABM42UB7P"] = 3600, ["KEY-JIHMLNONFC01"] = 3600, ["KEY-NBN784Q2OND2"] = 3600,
     ["KEY-AMDDBOWSEGAX"] = 3600, ["KEY-B0Y6IP2TUOS4"] = 3600, ["KEY-V0I90OF185UA"] = 3600,
@@ -26,8 +25,6 @@ local ValidKeys = {
     ["KEY-GD35UJIEC5O3"] = 3600, ["KEY-635PK9T1H8JJ"] = 3600, ["KEY-2HPH40ZORH0O"] = 3600,
     ["KEY-QWG5CN771LSC"] = 3600, ["KEY-KVEE47MEXKKF"] = 3600, ["KEY-NRBTD7VPBN6A"] = 3600,
     ["KEY-15Z9TQSZDLQE"] = 3600,
-    
-    -- 10 HORAS
     ["KEY-X125DP5ZVABD"] = 36000, ["KEY-LO8L4O9MAJKF"] = 36000, ["KEY-W2SRL0FUHAYV"] = 36000,
     ["KEY-40NM3ALSJAWU"] = 36000, ["KEY-DU72T1UMAWV8"] = 36000, ["KEY-U6ZCFWQLRA8V"] = 36000,
     ["KEY-8712IB7QF19L"] = 36000, ["KEY-9F9VVW855LFV"] = 36000, ["KEY-CTF4D74FZLI1"] = 36000,
@@ -37,8 +34,6 @@ local ValidKeys = {
     ["KEY-8MSFIQFXE45S"] = 36000, ["KEY-FVSM0SJ2NLO2"] = 36000, ["KEY-NA8A8TTDJ0D5"] = 36000,
     ["KEY-5002GYJRDF89"] = 36000, ["KEY-LDAK36L9LX2H"] = 36000, ["KEY-CJZZT4Z6Z52W"] = 36000,
     ["KEY-TUEWAJZV51WY"] = 36000,
-
-    -- 24 HORAS
     ["KEY-8VN2PWTU32CP"] = 86400, ["KEY-6YPEPB8VXF6U"] = 86400, ["KEY-BOBEQR2RY6RY"] = 86400,
     ["KEY-CIYABXMJXG8G"] = 86400, ["KEY-LNZGZ4DDX7ZZ"] = 86400, ["KEY-50IJ27MB2TBZ"] = 86400,
     ["KEY-BYRPCVN1X10L"] = 86400, ["KEY-FW4OXCUEDOP0"] = 86400, ["KEY-5O9IBCRERQZ3"] = 86400,
@@ -48,8 +43,6 @@ local ValidKeys = {
     ["KEY-MP57MHDYQ8UJ"] = 86400, ["KEY-UBRJ4P7VEOXU"] = 86400, ["KEY-BL5LHCKHKVI1"] = 86400,
     ["KEY-4PW061CRF1XW"] = 86400, ["KEY-3ZUOQ6J7MD7D"] = 86400, ["KEY-S0RGAEMP7CRA"] = 86400,
     ["KEY-0H4BR6X4NX02"] = 86400,
-
-    -- 3 DIAS
     ["KEY-9VXR7UO8LIUH"] = 259200, ["KEY-J4OZXVD0YEBB"] = 259200, ["KEY-LJEWVZVAGAW2"] = 259200,
     ["KEY-P0WDF12YIB6G"] = 259200, ["KEY-HNOBCQ5JQF7F"] = 259200, ["KEY-B0V9IXGMYAHI"] = 259200,
     ["KEY-HOSY4Y7JLTY9"] = 259200, ["KEY-KL4FTL7D185I"] = 259200, ["KEY-8R4DHEK9B0V5"] = 259200,
@@ -149,6 +142,18 @@ local espBoxEnabled = false
 local espSkeletonEnabled = false
 local espTracersEnabled = false
 
+-- ============ VARIÁVEIS SPEED ============
+local speedEnabled = false
+local targetSpeed = 175
+local BASE_SPEED = 16
+local isDoingSpeedFlush = false
+local wasMoving = false
+
+-- ============ VARIÁVEIS ANTI-RAGDOLL ============
+local antiRagdollEnabled = false
+local motorCache = {}
+local isRagdollLocked = false
+
 -- ============ VARIÁVEIS FARM ABÓBORA ============
 local HOVER_HEIGHT = 2.5    
 local FLY_SPEED = 2500   
@@ -174,6 +179,7 @@ local COORD_PESCA = Vector3.new(-2596, 122, -3040)
 -- ============ VARIÁVEIS ROUBO ============
 local runningRobbery = false
 local currentRobberyType = ""
+local robberyProcessedBags = {}
 
 -- ============ VARIÁVEIS VEÍCULOS E TELEPORTES ============
 local vehicleMap = {}
@@ -319,23 +325,59 @@ local function firePrompt(prompt)
     pcall(function() prompt:InputHoldBegin(); task.wait(math.max(prompt.HoldDuration or 0.1, 0.05)); prompt:InputHoldEnd() end)
 end
 
--- ============ LÓGICA DE ROUBO (SEM VERIFICAÇÃO DE POLICIAL) ============
-local function findRobberyPrompts(areaName)
+-- ============ DETECÇÃO DE STAFF ============
+local STAFF_KEYWORDS = {"staff", "adm", "admin", "mod", "moderador", "owner", "dono", "gerente", "manager", "suporte", "support"}
+
+local function getStaffInfo()
+    local staffList = {}
+    for _, p in ipairs(Players:GetPlayers()) do
+        if p ~= LP then
+            local rank = nil
+            if p.Team then
+                local tName = string.lower(p.Team.Name)
+                for _, kw in ipairs(STAFF_KEYWORDS) do
+                    if tName:find(kw) then rank = p.Team.Name; break end
+                end
+            end
+            if not rank and p:FindFirstChild("leaderstats") then
+                for _, stat in ipairs(p.leaderstats:GetChildren()) do
+                    local sN = string.lower(stat.Name)
+                    if sN:find("cargo") or sN:find("rank") or sN:find("profissao") or sN:find("job") then
+                        local sV = string.lower(tostring(stat.Value))
+                        for _, kw in ipairs(STAFF_KEYWORDS) do
+                            if sV:find(kw) then rank = tostring(stat.Value); break end
+                        end
+                        if rank then break end
+                    end
+                end
+            end
+            if not rank then
+                for k, v in pairs(p:GetAttributes()) do
+                    local vStr = string.lower(tostring(v))
+                    for _, kw in ipairs(STAFF_KEYWORDS) do
+                        if vStr:find(kw) then rank = tostring(v); break end
+                    end
+                    if rank then break end
+                end
+            end
+            if rank then table.insert(staffList, rank) end
+        end
+    end
+    return staffList
+end
+
+-- ============ LÓGICA DE ROUBO ============
+local function findRobberyPrompts(targetCoord)
     local list = {}
     for _, obj in ipairs(Workspace:GetDescendants()) do
         if obj:IsA("ProximityPrompt") and obj.Enabled then
             local act = string.lower(obj.ActionText or "")
             local objT = string.lower(obj.ObjectText or "")
-            
             if act:find("coletar") and (objT:find("dinheiro") or objT:find("sujo")) then
                 local parent = obj.Parent
                 local pos = parent:IsA("BasePart") and parent.Position or (parent:IsA("Model") and parent:GetPivot().Position)
-                
-                if pos then
-                    local path = parent:GetFullName():lower()
-                    if path:find(string.lower(areaName)) then
-                        table.insert(list, {prompt = obj, pos = pos, obj = parent})
-                    end
+                if pos and (pos - targetCoord).Magnitude < 500 then
+                    table.insert(list, {prompt = obj, pos = pos, obj = parent})
                 end
             end
         end
@@ -346,47 +388,52 @@ end
 local function runRobbery(type)
     runningRobbery = true
     currentRobberyType = type
-    local areaName = (type == "banco") and "Banco" or "Cassino"
+    robberyProcessedBags = {}
+    local targetCoord = (type == "banco") and COORD_BANCO or COORD_CASSINO
 
     while runningRobbery do
-        -- Procura os sacos
-        local bags = findRobberyPrompts(areaName)
+        local allBags = findRobberyPrompts(targetCoord)
+        local bags = {}
+        for _, b in ipairs(allBags) do
+            if not robberyProcessedBags[b.obj] then table.insert(bags, b) end
+        end
+
         if #bags == 0 then
-            Fluent:Notify({Title = "Roubo", Content = "Aguardando sacos de dinheiro spawnarem...", Duration = 3})
-            task.wait(3)
+            if #allBags > 0 then
+                robberyProcessedBags = {}
+                task.wait(1)
+            else
+                Fluent:Notify({Title = "Roubo", Content = "Aguardando sacos de dinheiro spawnarem...", Duration = 3})
+                task.wait(2)
+            end
         else
-            -- Ordena pelo mais próximo
-            local char, root = getChar()
+            local _, root = getChar()
             if root then
-                table.sort(bags, function(a, b) 
-                    return (a.pos - root.Position).Magnitude < (b.pos - root.Position).Magnitude 
-                end)
+                table.sort(bags, function(a, b) return (a.pos - root.Position).Magnitude < (b.pos - root.Position).Magnitude end)
             end
 
             for _, bag in ipairs(bags) do
                 if not runningRobbery then break end
-                
-                -- Se o saco ainda existe
-                if bag.obj and bag.obj.Parent then
-                    local char2, root2, hum2 = getChar()
-                    if root2 and hum2 then
-                        -- Vai até o saco
-                        hum2.Sit = true
-                        task.wait(0.05)
-                        root2.CFrame = CFrame.new(bag.pos + Vector3.new(0, 2.5, 0))
-                        task.wait(0.15)
-                        hum2.Sit = false
-                        
-                        -- Spamma o prompt
-                        local t0 = os.clock()
-                        while runningRobbery and (os.clock() - t0) < 3 do
-                            if not bag.obj.Parent then break end
-                            firePrompt(bag.prompt)
-                            task.wait(0.1)
-                        end
-                    end
+                if robberyProcessedBags[bag.obj] then continue end
+                if not bag.obj.Parent then continue end
+
+                local char2, root2, hum2 = getChar()
+                if root2 and hum2 then
+                    hum2.Sit = true
+                    task.wait(0.1)
+                    root2.CFrame = CFrame.new(bag.pos + Vector3.new(0, 1.5, 0))
+                    task.wait(0.2)
+                    hum2.Sit = false
+                    root2.AssemblyLinearVelocity = Vector3.zero
+                    root2.AssemblyAngularVelocity = Vector3.zero
+                    task.wait(0.5)
+                    firePrompt(bag.prompt)
+                    task.wait(0.3)
+                    firePrompt(bag.prompt)
+                    task.wait(5.5)
                 end
-                task.wait(0.2)
+                robberyProcessedBags[bag.obj] = true
+                task.wait(0.1)
             end
         end
         task.wait(0.2)
@@ -396,12 +443,13 @@ end
 
 local function stopRobbery()
     runningRobbery = false
+    robberyProcessedBags = {}
     local _, _, hum = getChar()
     if hum then hum.Sit = false end
     Fluent:Notify({Title = "Roubo", Content = "Roubo parado.", Duration = 3})
 end
 
--- ============ FUNÇÕES DO FARM ABÓBORA ============
+-- ============ FUNÇÕES FARM ABÓBORA ============
 local function getAboboras()
     local list = {}
     if #aboborasProcessadas > 50 then aboborasProcessadas = {}; spawnTimes = {} end
@@ -463,7 +511,6 @@ local function runAboboraLoop()
                     if not spawnTimes[target.obj] then spawnTimes[target.obj] = tick() end
                     local elapsed = tick() - spawnTimes[target.obj]
                     if elapsed < SPAWN_DELAY then
-                        Fluent:Notify({Title = "Farm Abóbora", Content = "Esperando a abóbora cair (1s)...", Duration = 1})
                         task.wait(SPAWN_DELAY - elapsed)
                     end
                     if not target.part.Parent then table.insert(aboborasProcessadas, target.obj); continue end
@@ -505,27 +552,19 @@ local function stopAboboraFarm()
     pinActive = false
     pinTarget = nil
     local _, hrp, hum = getChar()
-    if hum then 
-        hum.Sit = false 
-        hum.PlatformStand = false
-    end
-    if hrp then 
-        hrp.Anchored = false
-        hrp.AssemblyLinearVelocity = Vector3.zero
-    end
+    if hum then hum.Sit = false; hum.PlatformStand = false end
+    if hrp then hrp.Anchored = false; hrp.AssemblyLinearVelocity = Vector3.zero end
     Fluent:Notify({Title = "Farm", Content = "Farm parado e destravado.", Duration = 3})
 end
 
--- ============ FUNÇÕES DO FARM PEÇAS ============
+-- ============ FUNÇÕES FARM PEÇAS ============
 local function pegarRota()
     local playerGui = LP:FindFirstChild("PlayerGui")
     local rotasUI = playerGui and playerGui:FindFirstChild("RotasUI")
-    
     if rotasUI then
         local bgFrame = rotasUI:FindFirstChild("BGFrame")
         local items = bgFrame and bgFrame:FindFirstChild("Items")
         local farmItem = items and items:FindFirstChild("Farm de Partes de Arma")
-        
         if farmItem then
             clickBtn(farmItem)
             Fluent:Notify({Title = "Farm Peças", Content = "Rota selecionada!", Duration = 3})
@@ -533,7 +572,6 @@ local function pegarRota()
             return true
         end
     end
-    
     Fluent:Notify({Title = "Farm Peças", Content = "Abra o painel de rotas primeiro!", Duration = 3})
     return false
 end
@@ -542,15 +580,12 @@ local function findActivePromptPecas()
     local bestPrompt, bestPos, bestDist = nil, nil, math.huge
     local _, root = getChar()
     if not root then return nil end
-    
     for _, obj in ipairs(Workspace:GetDescendants()) do
         if obj:IsA("ProximityPrompt") and obj.Enabled and obj.Parent then
             local action = string.lower(obj.ActionText or "")
             local objText = string.lower(obj.ObjectText or "")
-            
             local isBlocked = action:find("dinheiro") or objText:find("dinheiro") or action:find("interagir")
             local hasPeca = action:find("peça") or action:find("peca") or action:find("parte") or objText:find("peça") or objText:find("peca") or objText:find("parte")
-            
             if hasPeca and not isBlocked then
                 local parent = obj.Parent
                 local pos
@@ -559,12 +594,9 @@ local function findActivePromptPecas()
                     local ok, pivot = pcall(function() return parent:GetPivot().Position end)
                     if ok then pos = pivot end
                 end
-                
                 if pos then
                     local dist = (pos - root.Position).Magnitude
-                    if dist < bestDist then
-                        bestDist = dist; bestPrompt = obj; bestPos = pos
-                    end
+                    if dist < bestDist then bestDist = dist; bestPrompt = obj; bestPos = pos end
                 end
             end
         end
@@ -575,35 +607,26 @@ end
 local function runPecasLoop()
     runningPecas = true
     pecasColetadas = 0
-    
     while runningPecas do
         local prompt, targetPos = findActivePromptPecas()
-        
         if prompt and targetPos then
             local target = targetPos + Vector3.new(0, 2, 0)
             local char, root, hum = getChar()
-            
             if root and hum then
                 hum.Sit = true
                 task.wait(0.05)
                 root.CFrame = CFrame.new(target)
                 task.wait(0.15) 
                 hum.Sit = false
-                
                 pcall(function()
                     prompt.HoldDuration = 0
                     if typeof(fireproximityprompt) == "function" then fireproximityprompt(prompt) end
                     prompt:InputHoldBegin(); prompt:InputHoldEnd()
                 end)
-                
                 task.wait(1.5) 
-                
                 if prompt and prompt.Parent and prompt.Enabled then
-                    pcall(function()
-                        if typeof(fireproximityprompt) == "function" then fireproximityprompt(prompt) end
-                    end)
+                    pcall(function() if typeof(fireproximityprompt) == "function" then fireproximityprompt(prompt) end end)
                 end
-                
                 pecasColetadas += 1
             end
         else
@@ -616,7 +639,6 @@ end
 local function stopPecasFarm()
     runningPecas = false
     local _, root, hum = getChar()
-    
     if root and hum then
         hum.Sit = true
         task.wait(0.1)
@@ -624,24 +646,19 @@ local function stopPecasFarm()
         task.wait(0.3)
         hum.Sit = false
     end
-    
     enviarComandoChat("/pararfarm")
     Fluent:Notify({Title = "Farm Peças", Content = "Farm parado. TP pra garagem e /pararfarm enviado.", Duration = 3})
 end
 
--- ============ FUNÇÕES DO AUTO PESCAR ============
+-- ============ FUNÇÕES AUTO PESCAR ============
 local function verificarVaraNoInventario()
     local playerGui = LP:FindFirstChild("PlayerGui")
     local invUI = playerGui and playerGui:FindFirstChild("InventoryUI")
-    
     if not invUI then return false, nil end
-    
     local invPessoal = invUI:FindFirstChild("InvFrame") and invUI.InvFrame:FindFirstChild("InvPessoal")
     if not invPessoal then return false, nil end
-    
     local conteudo = invPessoal:FindFirstChild("ConteudoInv")
     if not conteudo then return false, nil end
-    
     for _, slot in ipairs(conteudo:GetChildren()) do
         if slot.Name:find("Slot") then
             for _, desc in ipairs(slot:GetDescendants()) do
@@ -651,51 +668,35 @@ local function verificarVaraNoInventario()
             end
         end
     end
-    
     if LP:FindFirstChild("Backpack") and LP.Backpack:FindFirstChild("Vara") then return true, nil end
     if LP.Character and LP.Character:FindFirstChild("Vara") then return true, nil end
-    
     return false, nil
 end
 
 local function equiparVara(slotVara)
     local playerGui = LP:FindFirstChild("PlayerGui")
     local invUI = playerGui and playerGui:FindFirstChild("InventoryUI")
-    
     if invUI then
         local invPessoal = invUI:FindFirstChild("InvFrame") and invUI.InvFrame:FindFirstChild("InvPessoal")
-        
         if slotVara then
             local btnIn = slotVara:FindFirstChild("In")
-            if btnIn then
-                clickBtn(btnIn)
-                task.wait(0.3)
-            end
+            if btnIn then clickBtn(btnIn); task.wait(0.3) end
         end
-        
         if invPessoal then
             local xBtns = invPessoal:FindFirstChild("XBtns")
             if xBtns then
                 local usarBtn = xBtns:FindFirstChild("UsarBtn")
-                if usarBtn then
-                    clickBtn(usarBtn)
-                    task.wait(0.8)
-                end
+                if usarBtn then clickBtn(usarBtn); task.wait(0.8) end
             end
         end
-        
         local slotsContainer = invUI:FindFirstChild("SlotsContainer")
         local hotbar = slotsContainer and slotsContainer:FindFirstChild("Hotbar")
         local slots = hotbar and hotbar:FindFirstChild("Slots")
-        
         if slots then
             for _, hSlot in ipairs(slots:GetChildren()) do
                 if hSlot.Name:find("Slot") then
                     local img = hSlot:FindFirstChild("Img")
-                    if img then
-                        clickBtn(img)
-                        task.wait(0.1)
-                    end
+                    if img then clickBtn(img); task.wait(0.1) end
                 end
             end
         end
@@ -705,16 +706,13 @@ end
 local function tpPesca()
     local char, root, hum = getChar()
     if not root or not hum then return end
-    
-    if not savedPescaCFrame then
-        savedPescaCFrame = root.CFrame
-    end
-    
+    if not savedPescaCFrame then savedPescaCFrame = root.CFrame end
     hum.Sit = true
     task.wait(0.1)
     root.CFrame = CFrame.new(COORD_PESCA + Vector3.new(0, 3, 0))
-    task.wait(0.3)
+    task.wait(0.15)
     hum.Sit = false
+    task.wait(0.5)
 end
 
 local function runPescaLoop()
@@ -724,36 +722,26 @@ local function runPescaLoop()
             local myPos = root.Position
             local bestPrompt = nil
             local shortest = 20
-            
             for _, obj in ipairs(Workspace:GetDescendants()) do
                 if obj:IsA("ProximityPrompt") and obj.Enabled then
                     local action = string.lower(obj.ActionText or "")
                     local objText = string.lower(obj.ObjectText or "")
-                    
                     if action:find("pescar") or action:find("pesca") or action:find("fish") or objText:find("pesca") then
                         local parent = obj.Parent
                         local pos = parent:IsA("BasePart") and parent.Position or (parent:IsA("Model") and parent:GetPivot().Position)
-                        
                         if pos then
                             local dist = (pos - myPos).Magnitude
-                            if dist < shortest then
-                                shortest = dist
-                                bestPrompt = obj
-                            end
+                            if dist < shortest then shortest = dist; bestPrompt = obj end
                         end
                     end
                 end
             end
-
             if bestPrompt then
+                task.wait(0.5)
                 pcall(function()
                     bestPrompt.HoldDuration = 0
-                    if typeof(fireproximityprompt) == "function" then
-                        fireproximityprompt(bestPrompt)
-                    end
-                    bestPrompt:InputHoldBegin()
-                    task.wait(0.1)
-                    bestPrompt:InputHoldEnd()
+                    if typeof(fireproximityprompt) == "function" then fireproximityprompt(bestPrompt) end
+                    bestPrompt:InputHoldBegin(); task.wait(0.1); bestPrompt:InputHoldEnd()
                 end)
             end
         end
@@ -763,56 +751,27 @@ end
 
 local function startPescaFarm()
     runningPesca = true
-    
     task.spawn(function()
         local char = LP.Character
         local backpack = LP:FindFirstChild("Backpack")
-        
         if char and char:FindFirstChild("Vara") then
             Fluent:Notify({Title = "Pesca", Content = "Vara já está na mão! Iniciando...", Duration = 3})
-            tpPesca()
-            task.wait(1)
-            runPescaLoop()
-            return
+            tpPesca(); task.wait(1); runPescaLoop(); return
         end
-        
         if backpack and backpack:FindFirstChild("Vara") then
             Fluent:Notify({Title = "Pesca", Content = "Puxando Vara da mochila...", Duration = 3})
-            backpack.Vara.Parent = char
-            task.wait(0.5)
-            tpPesca()
-            task.wait(1)
-            runPescaLoop()
-            return
+            backpack.Vara.Parent = char; task.wait(0.5); tpPesca(); task.wait(1); runPescaLoop(); return
         end
-        
         local temVara, slotVara = verificarVaraNoInventario()
         if not temVara then
             Fluent:Notify({Title = "Erro", Content = "Você não tem uma Vara! Compre uma.", Duration = 5})
-            runningPesca = false
-            return
+            runningPesca = false; return
         end
-        
-        equiparVara(slotVara)
-        task.wait(1)
-        
-        char = LP.Character
-        backpack = LP:FindFirstChild("Backpack")
-        
-        if char and char:FindFirstChild("Vara") then
-            tpPesca()
-            task.wait(1)
-            runPescaLoop()
-        elseif backpack and backpack:FindFirstChild("Vara") then
-            backpack.Vara.Parent = char
-            task.wait(0.5)
-            tpPesca()
-            task.wait(1)
-            runPescaLoop()
-        else
-            Fluent:Notify({Title = "Erro", Content = "A Vara não foi equipada corretamente.", Duration = 5})
-            runningPesca = false
-        end
+        equiparVara(slotVara); task.wait(1)
+        char = LP.Character; backpack = LP:FindFirstChild("Backpack")
+        if char and char:FindFirstChild("Vara") then tpPesca(); task.wait(1); runPescaLoop()
+        elseif backpack and backpack:FindFirstChild("Vara") then backpack.Vara.Parent = char; task.wait(0.5); tpPesca(); task.wait(1); runPescaLoop()
+        else Fluent:Notify({Title = "Erro", Content = "A Vara não foi equipada corretamente.", Duration = 5}); runningPesca = false end
     end)
 end
 
@@ -820,79 +779,180 @@ local function stopPescaFarm()
     runningPesca = false
     local char, root, hum = getChar()
     if root and hum and savedPescaCFrame then
-        hum.Sit = true
-        task.wait(0.1)
-        root.CFrame = savedPescaCFrame
-        task.wait(0.2)
-        hum.Sit = false
+        hum.Sit = true; task.wait(0.1); root.CFrame = savedPescaCFrame; task.wait(0.2); hum.Sit = false
     end
     savedPescaCFrame = nil
     Fluent:Notify({Title = "Pesca", Content = "Pesca parada e voltou ao local.", Duration = 3})
 end
 
--- ============ FUNÇÕES DE VEÍCULOS ============
+-- ============ FUNÇÕES VEÍCULOS ============
 local function getSpawnedVehicles()
     local uniqueNames = {}
     local list = {}
     vehicleMap = {}
-    
     local _, myRoot = getChar()
     local myPos = myRoot and myRoot.Position or Vector3.zero
-
     for _, obj in ipairs(Workspace:GetDescendants()) do
         if obj:IsA("VehicleSeat") then
             local carModel = obj:FindFirstAncestorOfClass("Model")
-            
             if carModel and not carModel:FindFirstChildOfClass("Humanoid") and carModel:IsDescendantOf(Workspace) then
                 local primary = carModel.PrimaryPart or carModel:FindFirstChildWhichIsA("BasePart")
                 if primary and primary:IsA("BasePart") then
                     local name = carModel.Name
                     local dist = (primary.Position - myPos).Magnitude
-                    
                     if not uniqueNames[name] then
                         uniqueNames[name] = {model = carModel, dist = dist}
                         table.insert(list, name)
                     else
-                        if dist < uniqueNames[name].dist then
-                            uniqueNames[name] = {model = carModel, dist = dist}
-                        end
+                        if dist < uniqueNames[name].dist then uniqueNames[name] = {model = carModel, dist = dist} end
                     end
                 end
             end
         end
     end
-    
-    for name, data in pairs(uniqueNames) do
-        vehicleMap[name] = data.model
-    end
-    
+    for name, data in pairs(uniqueNames) do vehicleMap[name] = data.model end
     return list
 end
 
--- ============ LOOP PRINCIPAL ============
+-- ============ ANTI-RAGDOLL LOGIC ============
+local function setupAntiRagdoll(character)
+    if not antiRagdollEnabled then return end
+    local hum = character:WaitForChild("Humanoid", 5)
+    if not hum then return end
+    
+    hum:SetStateEnabled(Enum.HumanoidStateType.Ragdoll, false)
+    hum:SetStateEnabled(Enum.HumanoidStateType.FallingDown, false)
+    hum:SetStateEnabled(Enum.HumanoidStateType.Physics, false)
+    hum.BreakJointsOnDeath = false 
+    hum.AutoRotate = true
+
+    motorCache = {}
+    for _, v in ipairs(character:GetDescendants()) do
+        if v:IsA("Motor6D") then
+            motorCache[v.Name] = { Part0 = v.Part0, Part1 = v.Part1, C0 = v.C0, C1 = v.C1, Parent = v.Parent }
+        end
+    end
+
+    character.DescendantAdded:Connect(function(inst)
+        if not antiRagdollEnabled then return end
+        if inst:IsA("BallSocketConstraint") or inst:IsA("HingeConstraint") or inst:IsA("RopeConstraint") then
+            task.defer(function() if inst and inst.Parent then inst:Destroy() end end)
+        end
+    end)
+
+    hum.StateChanged:Connect(function(oldState, newState)
+        if not antiRagdollEnabled then return end
+        if newState == Enum.HumanoidStateType.Freefall or newState == Enum.HumanoidStateType.Jumping then
+            isRagdollLocked = true
+        elseif newState == Enum.HumanoidStateType.Landed or newState == Enum.HumanoidStateType.Running then
+            if isRagdollLocked then
+                task.delay(0.2, function()
+                    if hum and hum.Parent and hum:GetState() ~= Enum.HumanoidStateType.Freefall then
+                        isRagdollLocked = false
+                    end
+                end)
+            end
+        end
+    end)
+end
+
+if LP.Character then setupAntiRagdoll(LP.Character) end
+LP.CharacterAdded:Connect(function(char)
+    isRagdollLocked = false
+    task.wait(1)
+    if antiRagdollEnabled then
+        setupAntiRagdoll(char)
+    end
+end)
+
+-- ============ LOOP DO ANTI-RAGDOLL ============
+RunService.Heartbeat:Connect(function()
+    if not antiRagdollEnabled or not isRagdollLocked then return end
+    local char = LP.Character
+    if not char then return end
+    local hum = char:FindFirstChildOfClass("Humanoid")
+    if not hum then return end
+
+    hum.AutoRotate = true
+    if hum.PlatformStand then
+        hum.PlatformStand = false
+        hum:ChangeState(Enum.HumanoidStateType.GettingUp)
+    end
+    local state = hum:GetState()
+    if state == Enum.HumanoidStateType.Physics or state == Enum.HumanoidStateType.Ragdoll then
+        hum:ChangeState(Enum.HumanoidStateType.GettingUp)
+    end
+
+    for name, data in pairs(motorCache) do
+        local m = data.Parent:FindFirstChild(name)
+        if not m or not m:IsA("Motor6D") then
+            if m then m:Destroy() end
+            local newM = Instance.new("Motor6D")
+            newM.Name = name
+            newM.Part0 = data.Part0
+            newM.Part1 = data.Part1
+            newM.C0 = data.C0
+            newM.C1 = data.C1
+            newM.Enabled = true
+            newM.Parent = data.Parent
+        else
+            m.Enabled = true
+            if name == "RootJoint" or name == "Root" then
+                m.Transform = CFrame.new()
+                m.C0 = data.C0
+                m.C1 = data.C1
+            end
+        end
+    end
+end)
+
+-- ============ LOOP DE SPEED ============
+RunService.Heartbeat:Connect(function(dt)
+    if not speedEnabled then
+        wasMoving = false
+        return
+    end
+    local char = LP.Character
+    if not char then return end
+    local hum = char:FindFirstChildOfClass("Humanoid")
+    if not hum then return end
+
+    local isMoving = hum.MoveDirection.Magnitude > 0.1
+
+    if isMoving then
+        hum.WalkSpeed = targetSpeed
+        if not wasMoving and not isDoingSpeedFlush then
+            isDoingSpeedFlush = true
+            task.spawn(function()
+                hum.Sit = true
+                task.wait()
+                hum.Sit = false
+                isDoingSpeedFlush = false
+            end)
+        end
+    else
+        hum.WalkSpeed = BASE_SPEED
+    end
+
+    wasMoving = isMoving
+end)
+
+-- ============ LOOP PRINCIPAL ESP ============
 RunService.RenderStepped:Connect(function()
     local viewport = Camera.ViewportSize
     local centerScreen = Vector2.new(viewport.X / 2, viewport.Y / 2)
-    
+
     if spectateEnabled and spectateTargetModel and spectateTargetModel.Parent then
         local seat = spectateTargetModel:FindFirstChildWhichIsA("VehicleSeat")
-        if seat then
-            Camera.CameraType = Enum.CameraType.Custom
-            Camera.CameraSubject = seat
-        end
+        if seat then Camera.CameraType = Enum.CameraType.Custom; Camera.CameraSubject = seat end
     elseif spectateEnabled and (not spectateTargetModel or not spectateTargetModel.Parent) then
         local _, _, hum = getChar()
-        if hum then
-            Camera.CameraType = Enum.CameraType.Custom
-            Camera.CameraSubject = hum
-        end
+        if hum then Camera.CameraType = Enum.CameraType.Custom; Camera.CameraSubject = hum end
         spectateEnabled = false
     end
 
     if aimbotEnabled and not hideFov then
-        fovCircle.Visible = true
-        fovCircle.Position = centerScreen
-        fovCircle.Radius = fovSize
+        fovCircle.Visible = true; fovCircle.Position = centerScreen; fovCircle.Radius = fovSize
     else
         fovCircle.Visible = false
     end
@@ -929,43 +989,25 @@ RunService.RenderStepped:Connect(function()
             if char then
                 local hrp = char:FindFirstChild("HumanoidRootPart")
                 local hum = char:FindFirstChildOfClass("Humanoid")
-                
                 if hrp and hum and hum.Health > 0 then
                     local screenPos, onScreen = Camera:WorldToViewportPoint(hrp.Position)
-                    
                     if onScreen and screenPos.Z > 0 then
                         local dist = (Camera.CFrame.Position - hrp.Position).Magnitude
                         local height = math.clamp(1500 / dist, 20, 400)
                         local width = height * 0.6
-                        
                         local boxX = screenPos.X - (width / 2)
                         local boxY = screenPos.Y - (height / 2)
-                        
-                        esp.Box.Position = UDim2.new(0, boxX, 0, boxY)
-                        esp.Box.Size = UDim2.new(0, width, 0, height)
-                        esp.Box.Visible = true
-                        
+                        esp.Box.Position = UDim2.new(0, boxX, 0, boxY); esp.Box.Size = UDim2.new(0, width, 0, height); esp.Box.Visible = true
                         local healthPercent = hum.Health / hum.MaxHealth
-                        esp.HealthBg.Position = UDim2.new(0, boxX - 5, 0, boxY + height)
-                        esp.HealthBg.Size = UDim2.new(0, 3, 0, height)
-                        esp.HealthBg.Visible = true
-                        
+                        esp.HealthBg.Position = UDim2.new(0, boxX - 5, 0, boxY + height); esp.HealthBg.Size = UDim2.new(0, 3, 0, height); esp.HealthBg.Visible = true
                         esp.HealthFill.Size = UDim2.new(1, 0, healthPercent, 0)
                         if healthPercent > 0.75 then esp.HealthFill.BackgroundColor3 = Color3.fromRGB(0, 255, 0)
                         elseif healthPercent > 0.5 then esp.HealthFill.BackgroundColor3 = Color3.fromRGB(255, 255, 0)
                         elseif healthPercent > 0.25 then esp.HealthFill.BackgroundColor3 = Color3.fromRGB(255, 128, 0)
                         else esp.HealthFill.BackgroundColor3 = Color3.fromRGB(255, 0, 0) end
-                        
-                        esp.Name.Position = UDim2.new(0, boxX + (width/2) - 50, 0, boxY - 20)
-                        esp.Name.Size = UDim2.new(0, 100, 0, 15)
-                        esp.Name.Text = player.Name
-                        esp.Name.Visible = true
-                    else
-                        esp.Box.Visible = false; esp.HealthBg.Visible = false; esp.Name.Visible = false
-                    end
-                else
-                    esp.Box.Visible = false; esp.HealthBg.Visible = false; esp.Name.Visible = false
-                end
+                        esp.Name.Position = UDim2.new(0, boxX + (width/2) - 50, 0, boxY - 20); esp.Name.Size = UDim2.new(0, 100, 0, 15); esp.Name.Text = player.Name; esp.Name.Visible = true
+                    else esp.Box.Visible = false; esp.HealthBg.Visible = false; esp.Name.Visible = false end
+                else esp.Box.Visible = false; esp.HealthBg.Visible = false; esp.Name.Visible = false end
             end
         end
     end
@@ -1029,6 +1071,7 @@ local function LoadMainUI(isPremium)
     })
 
     local Tabs = {
+        Main = Window:AddTab({ Title = "Main", Icon = "home" }),
         Status = Window:AddTab({ Title = "Status", Icon = "info" }),
         PvP = Window:AddTab({ Title = "Área PvP", Icon = "crosshair" }),
         Evento = Window:AddTab({ Title = "Farm Evento", Icon = "gift" }),
@@ -1036,66 +1079,150 @@ local function LoadMainUI(isPremium)
         Roubo = Window:AddTab({ Title = "Roubo", Icon = "banknote" }),
         Veiculos = Window:AddTab({ Title = "Veículos", Icon = "car" }),
         Teleport = Window:AddTab({ Title = "Teleport", Icon = "map" }), 
+        Chars = Window:AddTab({ Title = "Chars", Icon = "shirt" }),
         Config = Window:AddTab({ Title = "Configurações", Icon = "settings" })
     }
 
-    -- ABA STATUS
+    -- ============ ABA MAIN ============
+    if isPremium then
+        Tabs.Main:AddParagraph({ Title = "Anti-Ragdoll", Content = "Evita que você caia todo mole ao pular de lugares altos." })
+        
+        Tabs.Main:AddToggle("AntiRagdollToggle", {
+            Title = "Ativar Anti-Ragdoll",
+            Default = false,
+            Callback = function(Value)
+                antiRagdollEnabled = Value
+                if Value then
+                    if LP.Character then setupAntiRagdoll(LP.Character) end
+                else
+                    local hum = LP.Character and LP.Character:FindFirstChildOfClass("Humanoid")
+                    if hum then
+                        hum.PlatformStand = false
+                        hum:ChangeState(Enum.HumanoidStateType.GettingUp)
+                    end
+                end
+            end
+        })
+
+        Tabs.Main:AddParagraph({ Title = "Sistema de Velocidade", Content = "Digite de 0 a 500 e ative o toggle.\nO bypass (sit/stand) acontece só quando você começa a andar." })
+
+        Tabs.Main:AddInput("SpeedInput", {
+            Title = "Velocidade (0-500)",
+            Default = "175",
+            Placeholder = "175",
+            Numeric = true,
+            Finished = true,
+            Callback = function(Value)
+                local num = tonumber(Value)
+                if num and num >= 0 and num <= 500 then
+                    targetSpeed = num
+                    Fluent:Notify({Title = "Speed", Content = "Velocidade ajustada para " .. num, Duration = 2})
+                end
+            end
+        })
+
+        Tabs.Main:AddToggle("SpeedToggle", {
+            Title = "Ativar Speed",
+            Default = false,
+            Callback = function(Value)
+                speedEnabled = Value
+                if not Value then
+                    local _, _, hum = getChar()
+                    if hum then hum.WalkSpeed = BASE_SPEED end
+                    Fluent:Notify({Title = "Speed", Content = "Speed desativado", Duration = 2})
+                else
+                    Fluent:Notify({Title = "Speed", Content = "Speed ativado em " .. targetSpeed, Duration = 2})
+                end
+            end
+        })
+    else
+        Tabs.Main:AddParagraph({ Title = "Módulo Bloqueado", Content = "Você entrou com a Entrada Grátis. Insira a Key correta para liberar." })
+    end
+
+    -- ============ ABA STATUS ============
     local statusPara = Tabs.Status:AddParagraph({
         Title = "Informações do Jogo",
         Content = "Carregando..."
     })
 
     task.spawn(function()
-        while task.wait(2) do
+        while task.wait(3) do
             local keyTime = getRemainingTimeString()
-            
+            pcall(function() Workspace:RequestStreamAroundAsync(COORD_BANCO, 2) end)
+            pcall(function() Workspace:RequestStreamAroundAsync(COORD_CASSINO, 2) end)
+            task.wait(0.35)
+
             local hasBank = false
             local hasCasino = false
-            
-            local banco = Workspace:FindFirstChild("Banco", true)
-            if banco then
-                for _, obj in ipairs(banco:GetDescendants()) do
-                    if obj:IsA("ProximityPrompt") and obj.Enabled then
-                        local act = string.lower(obj.ActionText or "")
-                        local objT = string.lower(obj.ObjectText or "")
-                        if act:find("coletar") or objT:find("dinheiro") then
-                            hasBank = true; break
+            for _, obj in ipairs(Workspace:GetDescendants()) do
+                if obj:IsA("ProximityPrompt") and obj.Enabled then
+                    local act = string.lower(obj.ActionText or "")
+                    local objT = string.lower(obj.ObjectText or "")
+                    if act:find("coletar") and (objT:find("dinheiro") or objT:find("sujo")) then
+                        local parent = obj.Parent
+                        local pos = parent:IsA("BasePart") and parent.Position or (parent:IsA("Model") and parent:GetPivot().Position)
+                        if pos then
+                            if (pos - COORD_BANCO).Magnitude < 1000 then hasBank = true
+                            elseif (pos - COORD_CASSINO).Magnitude < 1000 then hasCasino = true end
                         end
                     end
                 end
             end
-            
-            local cassino = Workspace:FindFirstChild("Cassino", true)
-            if cassino then
-                for _, obj in ipairs(cassino:GetDescendants()) do
-                    if obj:IsA("ProximityPrompt") and obj.Enabled then
-                        local act = string.lower(obj.ActionText or "")
-                        local objT = string.lower(obj.ObjectText or "")
-                        if act:find("coletar") or objT:find("dinheiro") then
-                            hasCasino = true; break
-                        end
-                    end
-                end
+
+            local staffList = getStaffInfo()
+            local staffText
+            if #staffList > 0 then
+                local uniqueRanks = {}
+                for _, r in ipairs(staffList) do if not uniqueRanks[r] then uniqueRanks[r] = true end end
+                local rankNames = {}
+                for r, _ in pairs(uniqueRanks) do table.insert(rankNames, r) end
+                staffText = "🟢 " .. #staffList .. " online (" .. table.concat(rankNames, ", ") .. ")"
+            else
+                staffText = "🔴 Nenhum"
             end
-            
+
             local bankStatus = hasBank and "🟢 Ligado" or "🔴 Desligado"
             local casinoStatus = hasCasino and "🟢 Ligado" or "🔴 Desligado"
-            
+
             local finalText = string.format(
-                "**Key Time:**\n%s\n\n**Dinheiro no Banco:**\n%s\n\n**Dinheiro no Cassino:**\n%s",
-                keyTime, bankStatus, casinoStatus
+                "**Key Time:**\n%s\n\n**Staff:**\n%s\n\n**Dinheiro no Banco:**\n%s\n\n**Dinheiro no Cassino:**\n%s",
+                keyTime, staffText, bankStatus, casinoStatus
             )
-            
+
             statusPara:SetDesc(finalText)
-            
+
             if keyTime == "Expirada" or keyTime == "Sem key salva" then
-                Window:Destroy()
+                pcall(function() Window:Destroy() end)
                 OpenKeySystem()
                 break
             end
         end
     end)
 
+    -- ============ ABA CHARS ============
+    if isPremium then
+        Tabs.Chars:AddParagraph({ Title = "Skins", Content = "Selecione um personagem abaixo para se vestir." })
+        Tabs.Chars:AddButton({ Title = "Vestir AntonellaBragLegitt", Callback = function()
+            enviarComandoChat("/vestechar AntonellaBragLegitt")
+            Fluent:Notify({Title = "Chars", Content = "Comando enviado!", Duration = 3})
+        end })
+        Tabs.Chars:AddButton({ Title = "Vestir GUEDES_VPN", Callback = function()
+            enviarComandoChat("/vestechar GUEDES_VPN")
+            Fluent:Notify({Title = "Chars", Content = "Comando enviado!", Duration = 3})
+        end })
+        Tabs.Chars:AddButton({ Title = "Vestir falida_85", Callback = function()
+            enviarComandoChat("/vestechar falida_85")
+            Fluent:Notify({Title = "Chars", Content = "Comando enviado!", Duration = 3})
+        end })
+        Tabs.Chars:AddButton({ Title = "Vestir PECZINHO_1X", Callback = function()
+            enviarComandoChat("/vestechar PECZINHO_1X")
+            Fluent:Notify({Title = "Chars", Content = "Comando enviado!", Duration = 3})
+        end })
+    else
+        Tabs.Chars:AddParagraph({ Title = "Módulo Bloqueado", Content = "Você entrou com a Entrada Grátis. Insira a Key correta para liberar as Skins." })
+    end
+
+    -- ============ ABA PVP ============
     Tabs.PvP:AddParagraph({ Title = "Aimbot", Content = "Configurações de mira e FOV" })
     Tabs.PvP:AddToggle("ToggleAimbot", { Title = "Ativar Aimbot", Default = false, Callback = function(Value)
         aimbotEnabled = Value
@@ -1124,6 +1251,7 @@ local function LoadMainUI(isPremium)
         if espTracersEnabled then for _, p in ipairs(Players:GetPlayers()) do createTracer(p) end else clearTracers() end
     end })
 
+    -- ============ ABA EVENTO ============
     if isPremium then
         Tabs.Evento:AddParagraph({ Title = "Farm de Abóboras", Content = "Use para coletar as abóboras do evento." })
         Tabs.Evento:AddButton({ Title = "Iniciar Farm Abóbora", Callback = function()
@@ -1138,6 +1266,7 @@ local function LoadMainUI(isPremium)
         Tabs.Evento:AddParagraph({ Title = "Módulo Bloqueado", Content = "Você entrou com a Entrada Grátis. Insira a Key correta para liberar o Farm de Abóboras." })
     end
 
+    -- ============ ABA OUTROS ============
     if isPremium then
         Tabs.Outros:AddParagraph({ Title = "Auto Pescar", Content = "Verifica a Vara, equipa e pesca automaticamente." })
         Tabs.Outros:AddButton({ Title = "Iniciar Auto Pescar", Callback = function()
@@ -1152,7 +1281,6 @@ local function LoadMainUI(isPremium)
         Tabs.Outros:AddParagraph({ Title = "Farm de Peças", Content = "Pega a rota, coleta peças. Ao parar, volta pra garagem." })
         Tabs.Outros:AddButton({ Title = "Iniciar Farm Peças", Callback = function()
             if runningPecas then Fluent:Notify({Title = "Aviso", Content = "O farm já está rodando!", Duration = 3}); return end
-            
             if pegarRota() then
                 Fluent:Notify({Title = "Farm Peças", Content = "Caçando peças iniciado!", Duration = 3}); 
                 task.spawn(runPecasLoop)
@@ -1166,9 +1294,9 @@ local function LoadMainUI(isPremium)
         Tabs.Outros:AddParagraph({ Title = "Módulo Bloqueado", Content = "Você entrou com a Entrada Grátis. Insira a Key correta para liberar a aba." })
     end
 
-    -- ABA ROUBO (SEM CHECAGEM DE POLICIAL)
+    -- ============ ABA ROUBO ============
     if isPremium then
-        Tabs.Roubo:AddParagraph({ Title = "Banco", Content = "Vai direto nos sacos de dinheiro quando aparecerem." })
+        Tabs.Roubo:AddParagraph({ Title = "Banco", Content = "Vai direto nos sacos de dinheiro e espera cada um sumir." })
         Tabs.Roubo:AddButton({ Title = "Roubar Banco", Callback = function()
             if runningRobbery then Fluent:Notify({Title = "Aviso", Content = "Já tem um roubo em andamento!", Duration = 3}); return end
             Fluent:Notify({Title = "Roubo", Content = "Iniciando roubo ao Banco!", Duration = 3})
@@ -1178,7 +1306,7 @@ local function LoadMainUI(isPremium)
             if currentRobberyType == "banco" then stopRobbery() else Fluent:Notify({Title = "Aviso", Content = "Nenhum roubo ao banco rolando.", Duration = 3}) end
         end })
 
-        Tabs.Roubo:AddParagraph({ Title = "Cassino", Content = "Vai direto nos sacos de dinheiro quando aparecerem." })
+        Tabs.Roubo:AddParagraph({ Title = "Cassino", Content = "Vai direto nos sacos de dinheiro e espera cada um sumir." })
         Tabs.Roubo:AddButton({ Title = "Roubar Cassino", Callback = function()
             if runningRobbery then Fluent:Notify({Title = "Aviso", Content = "Já tem um roubo em andamento!", Duration = 3}); return end
             Fluent:Notify({Title = "Roubo", Content = "Iniciando roubo ao Cassino!", Duration = 3})
@@ -1191,26 +1319,21 @@ local function LoadMainUI(isPremium)
         Tabs.Roubo:AddParagraph({ Title = "Módulo Bloqueado", Content = "Você entrou com a Entrada Grátis. Insira a Key correta para liberar a aba." })
     end
 
-    -- VEÍCULOS TAB
+    -- ============ ABA VEÍCULOS ============
     if isPremium then
         Tabs.Veiculos:AddParagraph({ Title = "Controle de Veículos", Content = "Specte ou envie veículos para o desmanche." })
-        
         local vehicleDropdown = Tabs.Veiculos:AddDropdown("VehicleList", {
             Title = "Selecionar Veículo",
             Values = {"Nenhum carro"}, 
             Default = "Nenhum carro",
             Multi = false,
             Callback = function(Value)
-                if vehicleMap[Value] then
-                    spectateTargetModel = vehicleMap[Value]
-                end
+                if vehicleMap[Value] then spectateTargetModel = vehicleMap[Value] end
             end
         })
-
         Tabs.Veiculos:AddButton({ Title = "Atualizar Lista", Callback = function()
             local success, err = pcall(function()
                 local spawned = getSpawnedVehicles()
-                
                 if #spawned > 0 then
                     vehicleDropdown:SetValues(spawned) 
                     Fluent:Notify({Title = "Veículos", Content = "Lista atualizada! " .. #spawned .. " carros achados.", Duration = 3})
@@ -1219,74 +1342,46 @@ local function LoadMainUI(isPremium)
                     Fluent:Notify({Title = "Aviso", Content = "Nenhum carro spawnado no mapa.", Duration = 3})
                 end
             end)
-            if not success then
-                Fluent:Notify({Title = "Erro", Content = tostring(err), Duration = 5})
-            end
+            if not success then Fluent:Notify({Title = "Erro", Content = tostring(err), Duration = 5}) end
         end })
-
         Tabs.Veiculos:AddToggle("ToggleSpectate", { Title = "Spectar Veículo", Default = false, Callback = function(Value)
             spectateEnabled = Value
             if Value and spectateTargetModel and spectateTargetModel.PrimaryPart and spectateTargetModel.PrimaryPart:IsA("BasePart") then
                 pcall(function() Workspace:RequestStreamAroundAsync(spectateTargetModel.PrimaryPart.Position) end)
             elseif not Value then
                 local _, _, hum = getChar()
-                if hum then
-                    Camera.CameraType = Enum.CameraType.Custom
-                    Camera.CameraSubject = hum
-                end
+                if hum then Camera.CameraType = Enum.CameraType.Custom; Camera.CameraSubject = hum end
             end
         end })
-
         Tabs.Veiculos:AddButton({ Title = "Teleportar no Carro", Callback = function()
             if not spectateTargetModel or not spectateTargetModel.Parent then
-                Fluent:Notify({Title = "Erro", Content = "Nenhum carro selecionado.", Duration = 3})
-                return
+                Fluent:Notify({Title = "Erro", Content = "Nenhum carro selecionado.", Duration = 3}); return
             end
-            
             local primary = spectateTargetModel.PrimaryPart or spectateTargetModel:FindFirstChildWhichIsA("BasePart")
             if primary and primary:IsA("BasePart") then
                 local char, root, hum = getChar()
                 if root and hum then
                     pcall(function() Workspace:RequestStreamAroundAsync(primary.Position) end)
                     local targetPos = primary.Position + Vector3.new(0, 3, 0)
-                    
-                    hum.Sit = true
-                    task.wait(0.1) 
-                    root.CFrame = CFrame.new(targetPos)
-                    task.wait(0.2)
-                    hum.Sit = false
-                    
+                    hum.Sit = true; task.wait(0.1); root.CFrame = CFrame.new(targetPos); task.wait(0.2); hum.Sit = false
                     Fluent:Notify({Title = "Veículos", Content = "Teleportado para o veículo!", Duration = 3})
                 end
             end
         end })
-
         Tabs.Veiculos:AddButton({ Title = "Dar TP no Desmanche", Callback = function()
             local char, root, hum = getChar()
             if not root or not hum then return end
-            
             local targetPos = COORD_DESMANCHE + Vector3.new(0, 5, 0)
-            
             if hum.SeatPart then
                 local carModel = hum.SeatPart:FindFirstAncestorOfClass("Model")
                 if carModel then
-                    hum.Sit = true
-                    task.wait(0.1)
-                    pcall(function()
-                        carModel:PivotTo(CFrame.new(targetPos))
-                    end)
-                    root.CFrame = CFrame.new(targetPos)
-                    task.wait(0.2)
-                    
+                    hum.Sit = true; task.wait(0.1)
+                    pcall(function() carModel:PivotTo(CFrame.new(targetPos)) end)
+                    root.CFrame = CFrame.new(targetPos); task.wait(0.2)
                     Fluent:Notify({Title = "Desmanche", Content = "Carro e jogador teleportados!", Duration = 3})
                 end
             else
-                hum.Sit = true
-                task.wait(0.1)
-                root.CFrame = CFrame.new(targetPos)
-                task.wait(0.2)
-                hum.Sit = false
-                
+                hum.Sit = true; task.wait(0.1); root.CFrame = CFrame.new(targetPos); task.wait(0.2); hum.Sit = false
                 Fluent:Notify({Title = "Desmanche", Content = "Você foi teleportado (a pé).", Duration = 3})
             end
         end })
@@ -1294,10 +1389,9 @@ local function LoadMainUI(isPremium)
         Tabs.Veiculos:AddParagraph({ Title = "Módulo Bloqueado", Content = "Você entrou com a Entrada Grátis. Insira a Key correta para liberar os Veículos." })
     end
 
-    -- TELEPORT TAB
+    -- ============ ABA TELEPORT ============
     if isPremium then
         Tabs.Teleport:AddParagraph({ Title = "Teleporte para Locais", Content = "Vá instantaneamente para os pontos do mapa." })
-
         local locations = {
             ["Lavagem de dinheiro"] = Vector3.new(-391, 143, -4000),
             ["Fabricar armas"] = Vector3.new(-429, 122, -4002),
@@ -1319,7 +1413,6 @@ local function LoadMainUI(isPremium)
             ["França"] = Vector3.new(-4866, 341, -6153),
             ["Pesca"] = Vector3.new(-2596, 122, -3040)
         }
-
         for name, pos in pairs(locations) do
             Tabs.Teleport:AddButton({
                 Title = "TP: " .. name,
@@ -1327,13 +1420,7 @@ local function LoadMainUI(isPremium)
                     local char, root, hum = getChar()
                     if root and hum then
                         local targetPos = pos + Vector3.new(0, 3, 0)
-                        
-                        hum.Sit = true
-                        task.wait(0.1)
-                        root.CFrame = CFrame.new(targetPos)
-                        task.wait(0.2)
-                        hum.Sit = false
-                        
+                        hum.Sit = true; task.wait(0.1); root.CFrame = CFrame.new(targetPos); task.wait(0.2); hum.Sit = false
                         Fluent:Notify({Title = "Teleporte", Content = "Você foi para: " .. name, Duration = 3})
                     end
                 end
@@ -1422,7 +1509,6 @@ local function OpenKeySystem()
 
     enterBtn.MouseButton1Click:Connect(function()
         local key = string.upper(textBox.Text)
-        
         if ValidKeys[key] then
             if isKeyUsed(key) then
                 statusText.Text = "Esta key já foi utilizada!"
@@ -1430,10 +1516,8 @@ local function OpenKeySystem()
             else
                 statusText.Text = "Key válida! Carregando..."
                 statusText.TextColor3 = Color3.fromRGB(50, 255, 50)
-                
                 markKeyAsUsed(key)
                 saveKeyTime(ValidKeys[key])
-                
                 task.wait(1)
                 keyGui:Destroy()
                 LoadMainUI(true)
