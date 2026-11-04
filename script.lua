@@ -1,4 +1,4 @@
--- language: Lua, file: sintonia_hub_v2_final.lua, target: Roblox (Delta Mobile)
+-- language: Lua, file: sintonia_hub_roubo.lua, target: Roblox (Delta Mobile)
 
 -- ============ CARREGANDO FLUENT ============
 local Fluent = loadstring(game:HttpGet("https://github.com/dawid-scripts/Fluent/releases/latest/download/main.lua"))()
@@ -62,7 +62,6 @@ local ValidKeys = {
 }
 
 -- ============ SISTEMA DE SALVAMENTO E KEY ÚNICA (RESETADO PARA V2) ============
--- Mudar o nome do arquivo para v2 força todo mundo a colocar key nova
 local TIME_FILE = "SintoniaRP_Time_v2.dat"
 local USED_FILE = "SintoniaRP_Cache_v2.dat" 
 
@@ -172,12 +171,18 @@ local runningPesca = false
 local savedPescaCFrame = nil
 local COORD_PESCA = Vector3.new(-2596, 122, -3040)
 
+-- ============ VARIÁVEIS ROUBO ============
+local runningRobbery = false
+local currentRobberyType = ""
+
 -- ============ VARIÁVEIS VEÍCULOS E TELEPORTES ============
 local vehicleMap = {}
 local spectateEnabled = false
 local spectateTargetModel = nil
 local COORD_DESMANCHE = Vector3.new(-1973, 122, -4065)
 local COORD_GARAGEM_PRACA = Vector3.new(-1002, 129, -4642)
+local COORD_BANCO = Vector3.new(-637, 108, -2673)
+local COORD_CASSINO = Vector3.new(-1359, 141, -4026)
 
 -- ============ FOV (DRAWING API) ============
 local fovCircle = Drawing.new("Circle")
@@ -307,6 +312,127 @@ local function enviarComandoChat(msg)
     return success
 end
 
+local function firePrompt(prompt)
+    if not prompt then return end
+    local fn = (getfenv and getfenv()["fireproximityprompt"]) or rawget(_G, "fireproximityprompt")
+    if fn then local ok = pcall(fn, prompt); if ok then return end end
+    pcall(function() prompt:InputHoldBegin(); task.wait(math.max(prompt.HoldDuration or 0.1, 0.05)); prompt:InputHoldEnd() end)
+end
+
+-- ============ LÓGICA DE ROUBO ============
+local function countPolice()
+    local count = 0
+    for _, p in ipairs(Players:GetPlayers()) do
+        local isPolice = false
+        -- Tenta verificar pelo time do jogador
+        if p.Team then
+            local teamName = string.lower(p.Team.Name)
+            if teamName:find("policia") or teamName:find("pm") or teamName:find("oficial") then
+                isPolice = true
+            end
+        end
+        -- Fallback: verifica atributos
+        if not isPolice then
+            local att = p:GetAttribute("Team") or p:GetAttribute("Time")
+            if att and tostring(att):lower():find("policia") then isPolice = true end
+        end
+        if isPolice and p.Character and p.Character:FindFirstChild("Humanoid") and p.Character.Humanoid.Health > 0 then
+            count += 1
+        end
+    end
+    return count
+end
+
+local function findRobberyPrompts(areaName)
+    local list = {}
+    for _, obj in ipairs(Workspace:GetDescendants()) do
+        if obj:IsA("ProximityPrompt") and obj.Enabled then
+            local act = string.lower(obj.ActionText or "")
+            local objT = string.lower(obj.ObjectText or "")
+            
+            if act:find("coletar") and (objT:find("dinheiro") or objT:find("sujo")) then
+                local parent = obj.Parent
+                local pos = parent:IsA("BasePart") and parent.Position or (parent:IsA("Model") and parent:GetPivot().Position)
+                
+                if pos then
+                    local path = parent:GetFullName():lower()
+                    if path:find(string.lower(areaName)) then
+                        table.insert(list, {prompt = obj, pos = pos, obj = parent})
+                    end
+                end
+            end
+        end
+    end
+    return list
+end
+
+local function runRobbery(type)
+    runningRobbery = true
+    currentRobberyType = type
+    local reqPolice = (type == "banco") and 4 or 5
+    local areaName = (type == "banco") and "Banco" or "Cassino"
+
+    while runningRobbery do
+        -- Checa Policiais
+        local police = countPolice()
+        if police < reqPolice then
+            Fluent:Notify({Title = "Roubo", Content = "Cancelado! Precisa de " .. reqPolice .. " policiais (Tem " .. police .. ").", Duration = 5})
+            runningRobbery = false
+            break
+        end
+
+        -- Procura os sacos
+        local bags = findRobberyPrompts(areaName)
+        if #bags == 0 then
+            Fluent:Notify({Title = "Roubo", Content = "Aguardando sacos de dinheiro spawnarem...", Duration = 3})
+            task.wait(3)
+        else
+            -- Ordena pelo mais próximo
+            local char, root = getChar()
+            if root then
+                table.sort(bags, function(a, b) 
+                    return (a.pos - root.Position).Magnitude < (b.pos - root.Position).Magnitude 
+                end)
+            end
+
+            for _, bag in ipairs(bags) do
+                if not runningRobbery then break end
+                
+                -- Se o saco ainda existe
+                if bag.obj and bag.obj.Parent then
+                    local char2, root2, hum2 = getChar()
+                    if root2 and hum2 then
+                        -- Vai até o saco
+                        hum2.Sit = true
+                        task.wait(0.05)
+                        root2.CFrame = CFrame.new(bag.pos + Vector3.new(0, 2.5, 0))
+                        task.wait(0.15)
+                        hum2.Sit = false
+                        
+                        -- Spamma o prompt
+                        local t0 = os.clock()
+                        while runningRobbery and (os.clock() - t0) < 3 do
+                            if not bag.obj.Parent then break end
+                            firePrompt(bag.prompt)
+                            task.wait(0.1)
+                        end
+                    end
+                end
+                task.wait(0.2)
+            end
+        end
+        task.wait(0.2)
+    end
+    Fluent:Notify({Title = "Roubo", Content = "Roubo finalizado.", Duration = 3})
+end
+
+local function stopRobbery()
+    runningRobbery = false
+    local _, _, hum = getChar()
+    if hum then hum.Sit = false end
+    Fluent:Notify({Title = "Roubo", Content = "Roubo parado.", Duration = 3})
+end
+
 -- ============ FUNÇÕES DO FARM ABÓBORA ============
 local function getAboboras()
     local list = {}
@@ -327,13 +453,6 @@ local function getAboboras()
         end
     end
     return list
-end
-
-local function firePrompt(prompt)
-    if not prompt then return end
-    local fn = (getfenv and getfenv()["fireproximityprompt"]) or rawget(_G, "fireproximityprompt")
-    if fn then local ok = pcall(fn, prompt); if ok then return end end
-    pcall(function() prompt:InputHoldBegin(); task.wait(math.max(prompt.HoldDuration or 0.1, 0.05)); prompt:InputHoldEnd() end)
 end
 
 local function flyToAndLock(targetCF)
@@ -946,12 +1065,13 @@ local function LoadMainUI(isPremium)
         PvP = Window:AddTab({ Title = "Área PvP", Icon = "crosshair" }),
         Evento = Window:AddTab({ Title = "Farm Evento", Icon = "gift" }),
         Outros = Window:AddTab({ Title = "Farm Outros", Icon = "box" }),
+        Roubo = Window:AddTab({ Title = "Roubo", Icon = "banknote" }), -- NOVA ABA AQUI
         Veiculos = Window:AddTab({ Title = "Veículos", Icon = "car" }),
         Teleport = Window:AddTab({ Title = "Teleport", Icon = "map" }), 
         Config = Window:AddTab({ Title = "Configurações", Icon = "settings" })
     }
 
-    -- ABA STATUS
+    -- ABA STATUS (Ajustada)
     local statusPara = Tabs.Status:AddParagraph({
         Title = "Informações do Jogo",
         Content = "Carregando..."
@@ -959,10 +1079,8 @@ local function LoadMainUI(isPremium)
 
     task.spawn(function()
         while task.wait(2) do
-            -- Verifica Key
             local keyTime = getRemainingTimeString()
             
-            -- Verifica Dinheiro (Banco e Cassino) buscando os ProximityPrompts Reais
             local hasBank = false
             local hasCasino = false
             
@@ -995,14 +1113,14 @@ local function LoadMainUI(isPremium)
             local bankStatus = hasBank and "🟢 Ligado" or "🔴 Desligado"
             local casinoStatus = hasCasino and "🟢 Ligado" or "🔴 Desligado"
             
+            -- Formatação com espaçamento melhorado
             local finalText = string.format(
-                "Key Time: %s\n\nDinheiro no Banco: %s\n\nDinheiro no Cassino: %s",
+                "**Key Time:**\n%s\n\n**Dinheiro no Banco:**\n%s\n\n**Dinheiro no Cassino:**\n%s",
                 keyTime, bankStatus, casinoStatus
             )
             
             statusPara:SetDesc(finalText)
             
-            -- SE A KEY EXPIRAR, FECHA A FLUENT E VOLTA PRA TELA DE KEY
             if keyTime == "Expirada" or keyTime == "Sem key salva" then
                 Window:Destroy()
                 OpenKeySystem()
@@ -1079,6 +1197,41 @@ local function LoadMainUI(isPremium)
         end })
     else
         Tabs.Outros:AddParagraph({ Title = "Módulo Bloqueado", Content = "Você entrou com a Entrada Grátis. Insira a Key correta para liberar a aba." })
+    end
+
+    -- ABA ROUBO
+    if isPremium then
+        Tabs.Roubo:AddParagraph({ Title = "Banco", Content = "Requer no mínimo 4 policiais online." })
+        Tabs.Roubo:AddButton({ Title = "Roubar Banco", Callback = function()
+            if runningRobbery then Fluent:Notify({Title = "Aviso", Content = "Já tem um roubo em andamento!", Duration = 3}); return end
+            local police = countPolice()
+            if police < 4 then
+                Fluent:Notify({Title = "Roubo", Content = "Bloqueado: Precisa de 4 policiais (Tem " .. police .. ").", Duration = 5})
+                return
+            end
+            Fluent:Notify({Title = "Roubo", Content = "Iniciando roubo ao Banco!", Duration = 3})
+            task.spawn(function() runRobbery("banco") end)
+        end })
+        Tabs.Roubo:AddButton({ Title = "Parar Roubo Banco", Callback = function()
+            if currentRobberyType == "banco" then stopRobbery() else Fluent:Notify({Title = "Aviso", Content = "Nenhum roubo ao banco rolando.", Duration = 3}) end
+        end })
+
+        Tabs.Roubo:AddParagraph({ Title = "Cassino", Content = "Requer no mínimo 5 policiais online." })
+        Tabs.Roubo:AddButton({ Title = "Roubar Cassino", Callback = function()
+            if runningRobbery then Fluent:Notify({Title = "Aviso", Content = "Já tem um roubo em andamento!", Duration = 3}); return end
+            local police = countPolice()
+            if police < 5 then
+                Fluent:Notify({Title = "Roubo", Content = "Bloqueado: Precisa de 5 policiais (Tem " .. police .. ").", Duration = 5})
+                return
+            end
+            Fluent:Notify({Title = "Roubo", Content = "Iniciando roubo ao Cassino!", Duration = 3})
+            task.spawn(function() runRobbery("cassino") end)
+        end })
+        Tabs.Roubo:AddButton({ Title = "Parar Roubo Cassino", Callback = function()
+            if currentRobberyType == "cassino" then stopRobbery() else Fluent:Notify({Title = "Aviso", Content = "Nenhum roubo ao cassino rolando.", Duration = 3}) end
+        end })
+    else
+        Tabs.Roubo:AddParagraph({ Title = "Módulo Bloqueado", Content = "Você entrou com a Entrada Grátis. Insira a Key correta para liberar a aba." })
     end
 
     -- VEÍCULOS TAB
@@ -1201,8 +1354,8 @@ local function LoadMainUI(isPremium)
             ["Concessionária"] = Vector3.new(-734, 131, -4737),
             ["Ammu"] = Vector3.new(-780, 124, -4018),
             ["Coreia"] = Vector3.new(-481, 122, -4080),
-            ["Cassino"] = Vector3.new(-1404, 122, -3895),
-            ["Banco"] = Vector3.new(-756, 140, -2686),
+            ["Cassino"] = COORD_CASSINO,
+            ["Banco"] = COORD_BANCO,
             ["Mecânica"] = Vector3.new(-269, 122, -2903),
             ["Vermelhão"] = Vector3.new(-434, 129, -2844),
             ["Antiga turquia"] = Vector3.new(-1794, 122, -4209),
