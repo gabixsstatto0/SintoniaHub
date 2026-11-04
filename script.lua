@@ -1,4 +1,4 @@
--- language: Lua, file: sintonia_hub_autopesca.lua, target: Roblox (Delta Mobile)
+-- language: Lua, file: sintonia_hub_completo_pesca_fix.lua, target: Roblox (Delta Mobile)
 
 -- ============ CARREGANDO FLUENT ============
 local Fluent = loadstring(game:HttpGet("https://github.com/dawid-scripts/Fluent/releases/latest/download/main.lua"))()
@@ -350,7 +350,22 @@ local function runAboboraLoop()
         task.wait(0.05)
     end
     pinActive = false
-    local _, _, hum = getChar(); if hum then hum.Sit = false end
+end
+
+local function stopAboboraFarm()
+    runningAbobora = false
+    pinActive = false
+    pinTarget = nil
+    local _, hrp, hum = getChar()
+    if hum then 
+        hum.Sit = false 
+        hum.PlatformStand = false
+    end
+    if hrp then 
+        hrp.Anchored = false
+        hrp.AssemblyLinearVelocity = Vector3.zero
+    end
+    Fluent:Notify({Title = "Farm", Content = "Farm parado e destravado.", Duration = 3})
 end
 
 -- ============ FUNÇÕES DO FARM PEÇAS ============
@@ -412,7 +427,7 @@ local function runPecasLoop()
                     prompt:InputHoldBegin(); prompt:InputHoldEnd()
                 end)
                 
-                task.wait(1.5) -- Delay de 1.5s da peça
+                task.wait(1.5)
                 
                 if prompt and prompt.Parent and prompt.Enabled then
                     pcall(function()
@@ -429,63 +444,222 @@ local function runPecasLoop()
     end
 end
 
--- ============ FUNÇÕES DO AUTO PESCAR ============
-local function runPescaLoop()
-    runningPesca = true
-    local char, root, hum = getChar()
+local function stopPecasFarm()
+    runningPecas = false
+    local _, _, hum = getChar()
+    if hum then hum.Sit = false end
+    Fluent:Notify({Title = "Farm Peças", Content = "Farm parado.", Duration = 3})
+end
+
+-- ============ FUNÇÕES DO AUTO PESCAR (NOVO) ============
+local function clickBtn(guiObj)
+    if guiObj then
+        pcall(function()
+            if typeof(firesignal) == "function" then
+                firesignal(guiObj.MouseButton1Click)
+            elseif guiObj.Activate then
+                guiObj:Activate()
+            end
+        end)
+        return true
+    end
+    return false
+end
+
+local function clickHotbar()
+    local playerGui = LP:FindFirstChild("PlayerGui")
+    local invUI = playerGui and playerGui:FindFirstChild("InventoryUI")
+    if not invUI then return false end
     
+    local slotsContainer = invUI:FindFirstChild("SlotsContainer")
+    local hotbar = slotsContainer and slotsContainer:FindFirstChild("Hotbar")
+    local slots = hotbar and hotbar:FindFirstChild("Slots")
+    
+    if slots then
+        for _, hSlot in ipairs(slots:GetChildren()) do
+            if hSlot.Name:find("Slot") then
+                local img = hSlot:FindFirstChild("Img")
+                if img then
+                    clickBtn(img)
+                    task.wait(0.1)
+                end
+            end
+        end
+        return true
+    end
+    return false
+end
+
+local function tpPesca()
+    local char, root, hum = getChar()
     if not root or not hum then return end
     
-    -- Salva a posição atual antes de ir
-    savedPescaCFrame = root.CFrame
+    if not savedPescaCFrame then
+        savedPescaCFrame = root.CFrame
+    end
     
-    -- Vai pra pesca
     hum.Sit = true
     task.wait(0.1)
     root.CFrame = CFrame.new(COORD_PESCA + Vector3.new(0, 3, 0))
-    task.wait(0.5)
+    task.wait(0.3)
     hum.Sit = false
-    
+end
+
+local function runPescaLoop()
     while runningPesca do
-        local char2, root2, hum2 = getChar()
-        if not root2 then task.wait(0.5) else
-            
-            -- Acha o prompt mais perto
+        local char, root = getChar()
+        if root then
+            local myPos = root.Position
             local bestPrompt = nil
-            local shortest = 20 -- Alcance de 20 studs
-            local myPos = root2.Position
+            local shortest = 20
             
             for _, obj in ipairs(Workspace:GetDescendants()) do
                 if obj:IsA("ProximityPrompt") and obj.Enabled then
-                    local parent = obj.Parent
-                    local pos
-                    if parent:IsA("BasePart") then pos = parent.Position
-                    elseif parent:IsA("Model") then
-                        local ok, pivot = pcall(function() return parent:GetPivot().Position end)
-                        if ok then pos = pivot end
-                    end
+                    local action = string.lower(obj.ActionText or "")
+                    local objText = string.lower(obj.ObjectText or "")
                     
-                    if pos then
-                        local dist = (pos - myPos).Magnitude
-                        if dist < shortest then
-                            shortest = dist
-                            bestPrompt = obj
+                    if action:find("pescar") or action:find("pesca") or action:find("fish") or objText:find("pesca") then
+                        local parent = obj.Parent
+                        local pos = parent:IsA("BasePart") and parent.Position or (parent:IsA("Model") and parent:GetPivot().Position)
+                        
+                        if pos then
+                            local dist = (pos - myPos).Magnitude
+                            if dist < shortest then
+                                shortest = dist
+                                bestPrompt = obj
+                            end
                         end
                     end
                 end
             end
-            
+
             if bestPrompt then
                 pcall(function()
                     bestPrompt.HoldDuration = 0
-                    if typeof(fireproximityprompt) == "function" then fireproximityprompt(bestPrompt) end
-                    bestPrompt:InputHoldBegin(); bestPrompt:InputHoldEnd()
+                    if typeof(fireproximityprompt) == "function" then
+                        fireproximityprompt(bestPrompt)
+                    end
+                    bestPrompt:InputHoldBegin()
+                    task.wait(0.1)
+                    bestPrompt:InputHoldEnd()
                 end)
             end
-            
-            task.wait(1.5) -- Delay de 1.5s pra não floodar e bugar a animação
         end
+        task.wait(1)
     end
+end
+
+local function startPescaFarm()
+    runningPesca = true
+    
+    task.spawn(function()
+        local char = LP.Character
+        local backpack = LP:FindFirstChild("Backpack")
+        local playerGui = LP:FindFirstChild("PlayerGui")
+        local invUI = playerGui and playerGui:FindFirstChild("InventoryUI")
+        
+        -- 1. Já tá na mão?
+        if char and char:FindFirstChild("Vara") then
+            Fluent:Notify({Title = "Pesca", Content = "Vara já está na mão! Iniciando...", Duration = 3})
+            tpPesca()
+            task.wait(1)
+            runPescaLoop()
+            return
+        end
+        
+        -- 2. Já tá na mochila (Backpack) por já ter clicado em Usar?
+        if backpack and backpack:FindFirstChild("Vara") then
+            Fluent:Notify({Title = "Pesca", Content = "Puxando Vara da mochila...", Duration = 3})
+            backpack.Vara.Parent = char
+            task.wait(0.5)
+            tpPesca()
+            task.wait(1)
+            runPescaLoop()
+            return
+        end
+        
+        -- 3. Não tá em lugar nenhum. Vai pro inventário
+        if not invUI then
+            Fluent:Notify({Title = "Erro", Content = "Abra o inventário ou compre uma Vara.", Duration = 5})
+            runningPesca = false
+            return
+        end
+        
+        -- Procura a Vara no inventário visual
+        local invPessoal = invUI:FindFirstChild("InvFrame") and invUI.InvFrame:FindFirstChild("InvPessoal")
+        local conteudo = invPessoal and invPessoal:FindFirstChild("ConteudoInv")
+        local slotVara = nil
+        
+        if conteudo then
+            for _, slot in ipairs(conteudo:GetChildren()) do
+                if slot.Name:find("Slot") then
+                    for _, desc in ipairs(slot:GetDescendants()) do
+                        if (desc:IsA("TextLabel") or desc:IsA("TextButton")) and string.lower(desc.Text or ""):find("vara") then
+                            slotVara = slot
+                            break
+                        end
+                    end
+                end
+                if slotVara then break end
+            end
+        end
+        
+        if not slotVara then
+            Fluent:Notify({Title = "Erro", Content = "Você não tem uma Vara! Compre uma.", Duration = 5})
+            runningPesca = false
+            return
+        end
+        
+        -- Clica no slot da Vara
+        local btnIn = slotVara:FindFirstChild("In")
+        if btnIn then clickBtn(btnIn); task.wait(0.3) end
+        
+        -- Clica em Usar
+        if invPessoal then
+            local xBtns = invPessoal:FindFirstChild("XBtns")
+            if xBtns then
+                local usarBtn = xBtns:FindFirstChild("UsarBtn")
+                if usarBtn then clickBtn(usarBtn); task.wait(0.8) end
+            end
+        end
+        
+        -- Pega na mão (Hotbar)
+        clickHotbar()
+        task.wait(0.5)
+        
+        -- Verifica novamente
+        char = LP.Character
+        backpack = LP:FindFirstChild("Backpack")
+        
+        if char and char:FindFirstChild("Vara") then
+            tpPesca()
+            task.wait(1)
+            runPescaLoop()
+        elseif backpack and backpack:FindFirstChild("Vara") then
+            backpack.Vara.Parent = char
+            task.wait(0.5)
+            tpPesca()
+            task.wait(1)
+            runPescaLoop()
+        else
+            Fluent:Notify({Title = "Erro", Content = "A Vara não foi equipada corretamente.", Duration = 5})
+            runningPesca = false
+        end
+    end)
+end
+
+local function stopPescaFarm()
+    runningPesca = false
+    local char, root, hum = getChar()
+    if root and hum and savedPescaCFrame then
+        hum.Sit = true
+        task.wait(0.1)
+        root.CFrame = savedPescaCFrame
+        task.wait(0.2)
+        hum.Sit = false
+    end
+    savedPescaCFrame = nil
+    Fluent:Notify({Title = "Pesca", Content = "Pesca parada e voltou ao local.", Duration = 3})
 end
 
 -- ============ FUNÇÕES DE VEÍCULOS ============
@@ -532,7 +706,6 @@ RunService.RenderStepped:Connect(function()
     local viewport = Camera.ViewportSize
     local centerScreen = Vector2.new(viewport.X / 2, viewport.Y / 2)
     
-    -- Lógica de Spectar
     if spectateEnabled and spectateTargetModel and spectateTargetModel.Parent then
         local seat = spectateTargetModel:FindFirstChildWhichIsA("VehicleSeat")
         if seat then
@@ -586,25 +759,45 @@ RunService.RenderStepped:Connect(function()
         for player, esp in pairs(espObjects) do
             local char = player.Character
             if char then
-                local head = char:FindFirstChild("Head"); local hrp = char:FindFirstChild("HumanoidRootPart")
-                local hum = char:FindFirstChildOfClass("Humanoid"); local leftLeg = char:FindFirstChild("Left Leg") or char:FindFirstChild("LeftFoot") or char:FindFirstChild("LeftUpperLeg")
-                if head and hrp and hum and leftLeg and hum.Health > 0 then
-                    local headPos, onScreen = Camera:WorldToViewportPoint(head.Position + Vector3.new(0, 0.5, 0))
-                    local legPos = Camera:WorldToViewportPoint(leftLeg.Position - Vector3.new(0, 0.5, 0))
-                    if onScreen and headPos.Z > 0 then
-                        local height = math.abs(legPos.Y - headPos.Y) + 20; local width = (height * 0.6) + 30 
-                        local boxX = headPos.X - (width / 2); local boxY = headPos.Y - 10
-                        esp.Box.Position = UDim2.new(0, boxX, 0, boxY); esp.Box.Size = UDim2.new(0, width, 0, height); esp.Box.Visible = true
+                local hrp = char:FindFirstChild("HumanoidRootPart")
+                local hum = char:FindFirstChildOfClass("Humanoid")
+                
+                if hrp and hum and hum.Health > 0 then
+                    local screenPos, onScreen = Camera:WorldToViewportPoint(hrp.Position)
+                    
+                    if onScreen and screenPos.Z > 0 then
+                        local dist = (Camera.CFrame.Position - hrp.Position).Magnitude
+                        local height = math.clamp(1500 / dist, 20, 400)
+                        local width = height * 0.6
+                        
+                        local boxX = screenPos.X - (width / 2)
+                        local boxY = screenPos.Y - (height / 2)
+                        
+                        esp.Box.Position = UDim2.new(0, boxX, 0, boxY)
+                        esp.Box.Size = UDim2.new(0, width, 0, height)
+                        esp.Box.Visible = true
+                        
                         local healthPercent = hum.Health / hum.MaxHealth
-                        esp.HealthBg.Position = UDim2.new(0, boxX - 5, 0, boxY + height); esp.HealthBg.Size = UDim2.new(0, 3, 0, height); esp.HealthBg.Visible = true
+                        esp.HealthBg.Position = UDim2.new(0, boxX - 5, 0, boxY + height)
+                        esp.HealthBg.Size = UDim2.new(0, 3, 0, height)
+                        esp.HealthBg.Visible = true
+                        
                         esp.HealthFill.Size = UDim2.new(1, 0, healthPercent, 0)
                         if healthPercent > 0.75 then esp.HealthFill.BackgroundColor3 = Color3.fromRGB(0, 255, 0)
                         elseif healthPercent > 0.5 then esp.HealthFill.BackgroundColor3 = Color3.fromRGB(255, 255, 0)
                         elseif healthPercent > 0.25 then esp.HealthFill.BackgroundColor3 = Color3.fromRGB(255, 128, 0)
                         else esp.HealthFill.BackgroundColor3 = Color3.fromRGB(255, 0, 0) end
-                        esp.Name.Position = UDim2.new(0, boxX + (width/2) - 50, 0, boxY - 20); esp.Name.Size = UDim2.new(0, 100, 0, 15); esp.Name.Text = player.Name; esp.Name.Visible = true
-                    else esp.Box.Visible = false; esp.HealthBg.Visible = false; esp.Name.Visible = false end
-                else esp.Box.Visible = false; esp.HealthBg.Visible = false; esp.Name.Visible = false end
+                        
+                        esp.Name.Position = UDim2.new(0, boxX + (width/2) - 50, 0, boxY - 20)
+                        esp.Name.Size = UDim2.new(0, 100, 0, 15)
+                        esp.Name.Text = player.Name
+                        esp.Name.Visible = true
+                    else
+                        esp.Box.Visible = false; esp.HealthBg.Visible = false; esp.Name.Visible = false
+                    end
+                else
+                    esp.Box.Visible = false; esp.HealthBg.Visible = false; esp.Name.Visible = false
+                end
             end
         end
     end
@@ -711,36 +904,25 @@ local function LoadMainUI(isPremium)
             Fluent:Notify({Title = "Farm", Content = "Farm iniciado!", Duration = 3}); task.spawn(runAboboraLoop)
         end })
         Tabs.Evento:AddButton({ Title = "Parar Farm Abóbora", Callback = function()
-            if not runningAbobora then Fluent:Notify({Title = "Aviso", Content = "O farm já está parado.", Duration = 3}); return end
-            runningAbobora = false; pinActive = false; local _, _, hum = getChar(); if hum then hum.Sit = false end
-            Fluent:Notify({Title = "Farm", Content = "Farm parado.", Duration = 3})
+            if not runningAbobora then return end
+            stopAboboraFarm()
         end })
     else
         Tabs.Evento:AddParagraph({ Title = "Módulo Bloqueado", Content = "Você entrou com a Entrada Grátis. Insira a Key correta para liberar o Farm de Abóboras." })
     end
 
     if isPremium then
-        -- AUTO PESCAR (NOVO)
-        Tabs.Outros:AddParagraph({ Title = "Auto Pescar", Content = "Teleporta para a pesca e spamma o prompt." })
+        -- SISTEMA DE PESCA NOVO AQUI
+        Tabs.Outros:AddParagraph({ Title = "Auto Pescar", Content = "Verifica a Vara, equipa e pesca automaticamente." })
         Tabs.Outros:AddButton({ Title = "Iniciar Auto Pescar", Callback = function()
             if runningPesca then Fluent:Notify({Title = "Aviso", Content = "A pesca já está rodando!", Duration = 3}); return end
-            Fluent:Notify({Title = "Pesca", Content = "Indo para o local de pesca...", Duration = 3}); task.spawn(runPescaLoop)
+            Fluent:Notify({Title = "Pesca", Content = "Verificando inventário...", Duration = 3}); startPescaFarm()
         end })
         Tabs.Outros:AddButton({ Title = "Parar Auto Pescar", Callback = function()
-            if not runningPesca then Fluent:Notify({Title = "Aviso", Content = "A pesca já está parada.", Duration = 3}); return end
-            runningPesca = false; 
-            local _, root, hum = getChar()
-            if root and hum and savedPescaCFrame then
-                hum.Sit = true
-                task.wait(0.1)
-                root.CFrame = savedPescaCFrame
-                task.wait(0.2)
-                hum.Sit = false
-            end
-            Fluent:Notify({Title = "Pesca", Content = "Pesca parada e voltou ao local.", Duration = 3})
+            if not runningPesca then return end
+            stopPescaFarm()
         end })
 
-        -- TELEPORTE DE ROTAS
         Tabs.Outros:AddParagraph({ Title = "Teleporte de Rotas", Content = "Vá instantaneamente para o local de pegar as rotas." })
         Tabs.Outros:AddButton({ Title = "Teleporte para pegar rota", Callback = function()
             local char, root, hum = getChar()
@@ -755,16 +937,14 @@ local function LoadMainUI(isPremium)
             end
         end })
 
-        -- SEÇÃO DE PEÇAS
         Tabs.Outros:AddParagraph({ Title = "Farm de Peças", Content = "Use para coletar peças de armas pelo mapa." })
         Tabs.Outros:AddButton({ Title = "Iniciar Farm Peças", Callback = function()
             if runningPecas then Fluent:Notify({Title = "Aviso", Content = "O farm já está rodando!", Duration = 3}); return end
             Fluent:Notify({Title = "Farm Peças", Content = "Caçando peças iniciado!", Duration = 3}); task.spawn(runPecasLoop)
         end })
         Tabs.Outros:AddButton({ Title = "Parar Farm Peças", Callback = function()
-            if not runningPecas then Fluent:Notify({Title = "Aviso", Content = "O farm já está parado.", Duration = 3}); return end
-            runningPecas = false; local _, _, hum = getChar(); if hum then hum.Sit = false end
-            Fluent:Notify({Title = "Farm Peças", Content = "Farm parado.", Duration = 3})
+            if not runningPecas then return end
+            stopPecasFarm()
         end })
     else
         Tabs.Outros:AddParagraph({ Title = "Módulo Bloqueado", Content = "Você entrou com a Entrada Grátis. Insira a Key correta para liberar a aba." })
