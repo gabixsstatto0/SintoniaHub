@@ -1,4 +1,4 @@
--- language: Lua, file: sintonia_hub_completo_final_v3.lua, target: Roblox (Delta Mobile)
+-- language: Lua, file: sintonia_hub_v2_final.lua, target: Roblox (Delta Mobile)
 
 -- ============ CARREGANDO FLUENT ============
 local Fluent = loadstring(game:HttpGet("https://github.com/dawid-scripts/Fluent/releases/latest/download/main.lua"))()
@@ -61,9 +61,10 @@ local ValidKeys = {
     ["KEY-XSOSI3T8V3X2"] = 259200
 }
 
--- ============ SISTEMA DE SALVAMENTO E KEY ÚNICA ============
-local TIME_FILE = "SintoniaRP_Time.dat"
-local USED_FILE = "SintoniaRP_Cache.dat" 
+-- ============ SISTEMA DE SALVAMENTO E KEY ÚNICA (RESETADO PARA V2) ============
+-- Mudar o nome do arquivo para v2 força todo mundo a colocar key nova
+local TIME_FILE = "SintoniaRP_Time_v2.dat"
+local USED_FILE = "SintoniaRP_Cache_v2.dat" 
 
 local function isKeyUsed(key)
     if not isfile or not readfile then return false end
@@ -106,6 +107,35 @@ local function saveKeyTime(durationSeconds)
     if not writefile then return end
     local expirationTime = os.time() + durationSeconds
     pcall(writefile, TIME_FILE, tostring(expirationTime))
+end
+
+local function getRemainingTimeString()
+    if not isfile or not readfile then return "Sem info" end
+    if isfile(TIME_FILE) then
+        local success, content = pcall(readfile, TIME_FILE)
+        if success and content and content ~= "" then
+            local expiration = tonumber(content)
+            if expiration then
+                local remaining = expiration - os.time()
+                if remaining > 0 then
+                    local days = math.floor(remaining / 86400)
+                    local hours = math.floor((remaining % 86400) / 3600)
+                    local minutes = math.floor((remaining % 3600) / 60)
+                    
+                    if days > 0 then
+                        return string.format("%d dias e %02d horas", days, hours)
+                    elseif hours > 0 then
+                        return string.format("%02d:%02d:%02d", hours, minutes, remaining % 60)
+                    else
+                        return string.format("%02d:%02d", minutes, remaining % 60)
+                    end
+                else
+                    return "Expirada"
+                end
+            end
+        end
+    end
+    return "Sem key salva"
 end
 
 -- ============ VARIÁVEIS PVP ============
@@ -500,7 +530,6 @@ local function stopPecasFarm()
     runningPecas = false
     local _, root, hum = getChar()
     
-    -- TP para Garagem da Praça
     if root and hum then
         hum.Sit = true
         task.wait(0.1)
@@ -509,9 +538,7 @@ local function stopPecasFarm()
         hum.Sit = false
     end
     
-    -- Envia o comando no chat
     enviarComandoChat("/pararfarm")
-    
     Fluent:Notify({Title = "Farm Peças", Content = "Farm parado. TP pra garagem e /pararfarm enviado.", Duration = 3})
 end
 
@@ -915,6 +942,7 @@ local function LoadMainUI(isPremium)
     })
 
     local Tabs = {
+        Status = Window:AddTab({ Title = "Status", Icon = "info" }),
         PvP = Window:AddTab({ Title = "Área PvP", Icon = "crosshair" }),
         Evento = Window:AddTab({ Title = "Farm Evento", Icon = "gift" }),
         Outros = Window:AddTab({ Title = "Farm Outros", Icon = "box" }),
@@ -922,6 +950,66 @@ local function LoadMainUI(isPremium)
         Teleport = Window:AddTab({ Title = "Teleport", Icon = "map" }), 
         Config = Window:AddTab({ Title = "Configurações", Icon = "settings" })
     }
+
+    -- ABA STATUS
+    local statusPara = Tabs.Status:AddParagraph({
+        Title = "Informações do Jogo",
+        Content = "Carregando..."
+    })
+
+    task.spawn(function()
+        while task.wait(2) do
+            -- Verifica Key
+            local keyTime = getRemainingTimeString()
+            
+            -- Verifica Dinheiro (Banco e Cassino) buscando os ProximityPrompts Reais
+            local hasBank = false
+            local hasCasino = false
+            
+            local banco = Workspace:FindFirstChild("Banco", true)
+            if banco then
+                for _, obj in ipairs(banco:GetDescendants()) do
+                    if obj:IsA("ProximityPrompt") and obj.Enabled then
+                        local act = string.lower(obj.ActionText or "")
+                        local objT = string.lower(obj.ObjectText or "")
+                        if act:find("coletar") or objT:find("dinheiro") then
+                            hasBank = true; break
+                        end
+                    end
+                end
+            end
+            
+            local cassino = Workspace:FindFirstChild("Cassino", true)
+            if cassino then
+                for _, obj in ipairs(cassino:GetDescendants()) do
+                    if obj:IsA("ProximityPrompt") and obj.Enabled then
+                        local act = string.lower(obj.ActionText or "")
+                        local objT = string.lower(obj.ObjectText or "")
+                        if act:find("coletar") or objT:find("dinheiro") then
+                            hasCasino = true; break
+                        end
+                    end
+                end
+            end
+            
+            local bankStatus = hasBank and "🟢 Ligado" or "🔴 Desligado"
+            local casinoStatus = hasCasino and "🟢 Ligado" or "🔴 Desligado"
+            
+            local finalText = string.format(
+                "Key Time: %s\n\nDinheiro no Banco: %s\n\nDinheiro no Cassino: %s",
+                keyTime, bankStatus, casinoStatus
+            )
+            
+            statusPara:SetDesc(finalText)
+            
+            -- SE A KEY EXPIRAR, FECHA A FLUENT E VOLTA PRA TELA DE KEY
+            if keyTime == "Expirada" or keyTime == "Sem key salva" then
+                Window:Destroy()
+                OpenKeySystem()
+                break
+            end
+        end
+    end)
 
     Tabs.PvP:AddParagraph({ Title = "Aimbot", Content = "Configurações de mira e FOV" })
     Tabs.PvP:AddToggle("ToggleAimbot", { Title = "Ativar Aimbot", Default = false, Callback = function(Value)
