@@ -1,4 +1,4 @@
--- language: Lua, file: sintonia_hub_roubo.lua, target: Roblox (Delta Mobile)
+-- language: Lua, file: sintonia_hub_roubo_v2.lua, target: Roblox (Delta Mobile)
 
 -- ============ CARREGANDO FLUENT ============
 local Fluent = loadstring(game:HttpGet("https://github.com/dawid-scripts/Fluent/releases/latest/download/main.lua"))()
@@ -61,7 +61,7 @@ local ValidKeys = {
     ["KEY-XSOSI3T8V3X2"] = 259200
 }
 
--- ============ SISTEMA DE SALVAMENTO E KEY ÚNICA (RESETADO PARA V2) ============
+-- ============ SISTEMA DE SALVAMENTO E KEY ÚNICA ============
 local TIME_FILE = "SintoniaRP_Time_v2.dat"
 local USED_FILE = "SintoniaRP_Cache_v2.dat" 
 
@@ -319,30 +319,7 @@ local function firePrompt(prompt)
     pcall(function() prompt:InputHoldBegin(); task.wait(math.max(prompt.HoldDuration or 0.1, 0.05)); prompt:InputHoldEnd() end)
 end
 
--- ============ LÓGICA DE ROUBO ============
-local function countPolice()
-    local count = 0
-    for _, p in ipairs(Players:GetPlayers()) do
-        local isPolice = false
-        -- Tenta verificar pelo time do jogador
-        if p.Team then
-            local teamName = string.lower(p.Team.Name)
-            if teamName:find("policia") or teamName:find("pm") or teamName:find("oficial") then
-                isPolice = true
-            end
-        end
-        -- Fallback: verifica atributos
-        if not isPolice then
-            local att = p:GetAttribute("Team") or p:GetAttribute("Time")
-            if att and tostring(att):lower():find("policia") then isPolice = true end
-        end
-        if isPolice and p.Character and p.Character:FindFirstChild("Humanoid") and p.Character.Humanoid.Health > 0 then
-            count += 1
-        end
-    end
-    return count
-end
-
+-- ============ LÓGICA DE ROUBO (SEM VERIFICAÇÃO DE POLICIAL) ============
 local function findRobberyPrompts(areaName)
     local list = {}
     for _, obj in ipairs(Workspace:GetDescendants()) do
@@ -369,18 +346,9 @@ end
 local function runRobbery(type)
     runningRobbery = true
     currentRobberyType = type
-    local reqPolice = (type == "banco") and 4 or 5
     local areaName = (type == "banco") and "Banco" or "Cassino"
 
     while runningRobbery do
-        -- Checa Policiais
-        local police = countPolice()
-        if police < reqPolice then
-            Fluent:Notify({Title = "Roubo", Content = "Cancelado! Precisa de " .. reqPolice .. " policiais (Tem " .. police .. ").", Duration = 5})
-            runningRobbery = false
-            break
-        end
-
         -- Procura os sacos
         local bags = findRobberyPrompts(areaName)
         if #bags == 0 then
@@ -1065,13 +1033,13 @@ local function LoadMainUI(isPremium)
         PvP = Window:AddTab({ Title = "Área PvP", Icon = "crosshair" }),
         Evento = Window:AddTab({ Title = "Farm Evento", Icon = "gift" }),
         Outros = Window:AddTab({ Title = "Farm Outros", Icon = "box" }),
-        Roubo = Window:AddTab({ Title = "Roubo", Icon = "banknote" }), -- NOVA ABA AQUI
+        Roubo = Window:AddTab({ Title = "Roubo", Icon = "banknote" }),
         Veiculos = Window:AddTab({ Title = "Veículos", Icon = "car" }),
         Teleport = Window:AddTab({ Title = "Teleport", Icon = "map" }), 
         Config = Window:AddTab({ Title = "Configurações", Icon = "settings" })
     }
 
-    -- ABA STATUS (Ajustada)
+    -- ABA STATUS
     local statusPara = Tabs.Status:AddParagraph({
         Title = "Informações do Jogo",
         Content = "Carregando..."
@@ -1113,7 +1081,6 @@ local function LoadMainUI(isPremium)
             local bankStatus = hasBank and "🟢 Ligado" or "🔴 Desligado"
             local casinoStatus = hasCasino and "🟢 Ligado" or "🔴 Desligado"
             
-            -- Formatação com espaçamento melhorado
             local finalText = string.format(
                 "**Key Time:**\n%s\n\n**Dinheiro no Banco:**\n%s\n\n**Dinheiro no Cassino:**\n%s",
                 keyTime, bankStatus, casinoStatus
@@ -1199,16 +1166,11 @@ local function LoadMainUI(isPremium)
         Tabs.Outros:AddParagraph({ Title = "Módulo Bloqueado", Content = "Você entrou com a Entrada Grátis. Insira a Key correta para liberar a aba." })
     end
 
-    -- ABA ROUBO
+    -- ABA ROUBO (SEM CHECAGEM DE POLICIAL)
     if isPremium then
-        Tabs.Roubo:AddParagraph({ Title = "Banco", Content = "Requer no mínimo 4 policiais online." })
+        Tabs.Roubo:AddParagraph({ Title = "Banco", Content = "Vai direto nos sacos de dinheiro quando aparecerem." })
         Tabs.Roubo:AddButton({ Title = "Roubar Banco", Callback = function()
             if runningRobbery then Fluent:Notify({Title = "Aviso", Content = "Já tem um roubo em andamento!", Duration = 3}); return end
-            local police = countPolice()
-            if police < 4 then
-                Fluent:Notify({Title = "Roubo", Content = "Bloqueado: Precisa de 4 policiais (Tem " .. police .. ").", Duration = 5})
-                return
-            end
             Fluent:Notify({Title = "Roubo", Content = "Iniciando roubo ao Banco!", Duration = 3})
             task.spawn(function() runRobbery("banco") end)
         end })
@@ -1216,14 +1178,9 @@ local function LoadMainUI(isPremium)
             if currentRobberyType == "banco" then stopRobbery() else Fluent:Notify({Title = "Aviso", Content = "Nenhum roubo ao banco rolando.", Duration = 3}) end
         end })
 
-        Tabs.Roubo:AddParagraph({ Title = "Cassino", Content = "Requer no mínimo 5 policiais online." })
+        Tabs.Roubo:AddParagraph({ Title = "Cassino", Content = "Vai direto nos sacos de dinheiro quando aparecerem." })
         Tabs.Roubo:AddButton({ Title = "Roubar Cassino", Callback = function()
             if runningRobbery then Fluent:Notify({Title = "Aviso", Content = "Já tem um roubo em andamento!", Duration = 3}); return end
-            local police = countPolice()
-            if police < 5 then
-                Fluent:Notify({Title = "Roubo", Content = "Bloqueado: Precisa de 5 policiais (Tem " .. police .. ").", Duration = 5})
-                return
-            end
             Fluent:Notify({Title = "Roubo", Content = "Iniciando roubo ao Cassino!", Duration = 3})
             task.spawn(function() runRobbery("cassino") end)
         end })
